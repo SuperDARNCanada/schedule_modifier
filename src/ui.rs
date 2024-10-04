@@ -1,9 +1,9 @@
-use ratatui::Frame;
+use crate::app::{App, CurrentScreen, CurrentlyEditing};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Row, Table, TableState, Wrap};
-use crate::app::{App, CurrentlyEditing, CurrentScreen};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::Frame;
 
 pub fn ui(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -23,7 +23,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         "Modify Borealis schedule",
         Style::default().fg(Color::Green),
     ))
-        .block(title_block);
+    .block(title_block);
 
     frame.render_widget(title, chunks[0]);
 
@@ -52,7 +52,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             }
             CurrentScreen::Exiting => Span::styled("Exiting", Style::default().fg(Color::LightRed)),
         }
-            .to_owned(),
+        .to_owned(),
         // A white divider bar to separate the two sections
         Span::styled(" | ", Style::default().fg(Color::White)),
         // The final section of the text, with hints on what the user is editing
@@ -83,12 +83,18 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                     CurrentlyEditing::Experiment => {
                         Span::styled("Editing Experiment", Style::default().fg(Color::Green))
                     }
-                    CurrentlyEditing::SchedulingMode => {
-                        Span::styled("Editing Scheduling Mode", Style::default().fg(Color::LightGreen))
-                    }
-                    CurrentlyEditing::Kwargs => {
-                        Span::styled("Editing Keyword Arguments", Style::default().fg(Color::Green))
-                    }
+                    CurrentlyEditing::SchedulingMode => Span::styled(
+                        "Editing Scheduling Mode",
+                        Style::default().fg(Color::LightGreen),
+                    ),
+                    CurrentlyEditing::Kwargs => Span::styled(
+                        "Editing Keyword Arguments",
+                        Style::default().fg(Color::Green),
+                    ),
+                    CurrentlyEditing::Done => Span::styled(
+                        "Confirm entry",
+                        Style::default().fg(Color::Green),
+                    ),
                 }
             } else {
                 Span::styled("Not Editing Anything", Style::default().fg(Color::DarkGray))
@@ -102,7 +108,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     let current_keys_hint = {
         match app.current_screen {
             CurrentScreen::Main => Span::styled(
-                "(q) to quit / (a)/(r) to add/remove a schedule line",
+                "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
                 Style::default().fg(Color::Red),
             ),
             CurrentScreen::Adding | CurrentScreen::Removing => Span::styled(
@@ -110,7 +116,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(Color::Red),
             ),
             CurrentScreen::Exiting => Span::styled(
-                "(q) to quit / (a)/(r) to add/remove a schedule line",
+                "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
                 Style::default().fg(Color::Red),
             ),
         }
@@ -128,42 +134,19 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     frame.render_widget(key_notes_footer, footer_chunks[1]);
 
     if let Some(editing) = &app.currently_editing {
-        // let popup_block = Block::default()
-        //     .title("Create a schedule entry")
-        //     .borders(Borders::NONE)
-        //     .style(Style::default().bg(Color::DarkGray));
+        let popup_block = Block::default()
+            .title("Create a schedule entry")
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray));
 
         let area = centered_rect(60, 25, frame.area());
-        // frame.render_widget(popup_block, area);
+        frame.render_widget(popup_block, area);
 
         let popup_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .margin(1)
-            .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
             .split(area);
-
-        let rows = [
-            Row::new(vec!["Year", ""]),
-            Row::new(vec!["Month", ""]),
-            Row::new(vec!["Day", ""]),
-            Row::new(vec!["Hour", ""]),
-            Row::new(vec!["Minute", ""]),
-            Row::new(vec!["Duration", ""]),
-            Row::new(vec!["Priority", ""]),
-            Row::new(vec!["Experiment", ""]),
-            Row::new(vec!["Scheduling Mode", ""]),
-            Row::new(vec!["Kwargs", ""]),
-        ];
-        let widths = [
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ];
-        let table = Table::new(rows, widths)
-            .block(Block::new().title("Table"))
-            .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
-            .highlight_symbol(">>");
-
-        frame.render_stateful_widget(table, area, &mut app.edit_state);
 
         let line_chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -178,20 +161,25 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                 Constraint::Length(1),
                 Constraint::Length(1),
                 Constraint::Length(1),
+                Constraint::Length(1),
             ])
             .split(popup_chunks[0]);
 
-        let mut selection_block = Block::default().title("Selection").borders(Borders::ALL);
-        let mut year_block = Block::default().title("Year").borders(Borders::NONE);
-        let mut month_block = Block::default().title("Month").borders(Borders::NONE);
-        let mut day_block = Block::default().title("Day").borders(Borders::NONE);
-        let mut hour_block = Block::default().title("Hour").borders(Borders::NONE);
-        let mut minute_block = Block::default().title("Minute").borders(Borders::NONE);
-        let mut duration_block = Block::default().title("Duration").borders(Borders::NONE);
-        let mut priority_block = Block::default().title("Priority").borders(Borders::NONE);
-        let mut experiment_block = Block::default().title("Experiment").borders(Borders::NONE);
-        let mut mode_block = Block::default().title("Scheduling Mode").borders(Borders::NONE);
-        let mut kwargs_block = Block::default().title("Keyword Arguments").borders(Borders::NONE);
+        let selection_block = Block::default().title("Selection").borders(Borders::ALL);
+        let mut year_block = Paragraph::new(format!("Year: {}", app.year_input.clone()));
+        let mut month_block = Paragraph::new(format!("Month: {}", app.month_input.clone()));
+        let mut day_block = Paragraph::new(format!("Day: {}", app.day_input.clone()));
+        let mut hour_block = Paragraph::new(format!("Hour: {}", app.hour_input.clone()));
+        let mut minute_block = Paragraph::new(format!("Minute: {}", app.minute_input.clone()));
+        let mut duration_block =
+            Paragraph::new(format!("Duration: {}", app.duration_input.clone()));
+        let mut priority_block =
+            Paragraph::new(format!("Priority: {}", app.priority_input.clone()));
+        let mut experiment_block =
+            Paragraph::new(format!("Experiment: {}", app.experiment_input.clone()));
+        let mut mode_block = Paragraph::new(format!("Scheduling Mode: {}", app.mode_input.clone()));
+        let mut kwargs_block = Paragraph::new(format!("Kwargs: {}", app.kwarg_input.clone()));
+        let mut done_block = Paragraph::new("Enter");
 
         let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
 
@@ -206,21 +194,23 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             CurrentlyEditing::Experiment => experiment_block = experiment_block.style(active_style),
             CurrentlyEditing::SchedulingMode => mode_block = mode_block.style(active_style),
             CurrentlyEditing::Kwargs => kwargs_block = kwargs_block.style(active_style),
+            CurrentlyEditing::Done => done_block = done_block.style(active_style),
         };
 
-        // frame.render_widget(Paragraph::new(app.year_input.clone()).block(year_block), line_chunks[0]);
-        // frame.render_widget(Paragraph::new(app.month_input.clone()).block(month_block), line_chunks[1]);
-        // frame.render_widget(Paragraph::new(app.day_input.clone()).block(day_block), line_chunks[2]);
-        // frame.render_widget(Paragraph::new(format!("Hour: {}", app.hour_input.clone())).block(hour_block), line_chunks[3]);
-        // frame.render_widget(Paragraph::new(format!("Minute: {}", app.minute_input.clone())).block(minute_block), line_chunks[4]);
-        // frame.render_widget(Paragraph::new(format!("Duration: {}", app.duration_input.clone())).block(duration_block), line_chunks[5]);
-        // frame.render_widget(Paragraph::new(format!("Priority: {}", app.priority_input.clone())).block(priority_block), line_chunks[6]);
-        // frame.render_widget(Paragraph::new(format!("Experiment: {}", app.experiment_input.clone())).block(experiment_block), line_chunks[7]);
-        // frame.render_widget(Paragraph::new(format!("Scheduling Mode: {}", app.mode_input.clone())).block(mode_block), line_chunks[8]);
-        // frame.render_widget(Paragraph::new(format!("Kwargs: {}", app.kwarg_input.clone())).block(kwargs_block), line_chunks[9]);
-        //
-        // let selection_text = Paragraph::new("Possible selections").block(selection_block);
-        // frame.render_widget(selection_text, popup_chunks[1]);
+        frame.render_widget(year_block, line_chunks[0]);
+        frame.render_widget(month_block, line_chunks[1]);
+        frame.render_widget(day_block, line_chunks[2]);
+        frame.render_widget(hour_block, line_chunks[3]);
+        frame.render_widget(minute_block, line_chunks[4]);
+        frame.render_widget(duration_block, line_chunks[5]);
+        frame.render_widget(priority_block, line_chunks[6]);
+        frame.render_widget(experiment_block, line_chunks[7]);
+        frame.render_widget(mode_block, line_chunks[8]);
+        frame.render_widget(kwargs_block, line_chunks[9]);
+        frame.render_widget(done_block, line_chunks[10]);
+
+        let selection_text = Paragraph::new("Possible selections").block(selection_block);
+        frame.render_widget(selection_text, popup_chunks[1]);
     }
 
     if let CurrentScreen::Exiting = app.current_screen {
@@ -243,7 +233,6 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         frame.render_widget(exit_paragraph, area);
     }
 }
-
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

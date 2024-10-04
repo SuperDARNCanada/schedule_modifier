@@ -1,5 +1,6 @@
-use chrono::Utc;
-use ratatui::widgets::TableState;
+use crate::schedule::*;
+use chrono::{DateTime, Duration, NaiveDate, Utc};
+
 
 pub enum CurrentScreen {
     Main,
@@ -19,35 +20,10 @@ pub enum CurrentlyEditing {
     Experiment,
     SchedulingMode,
     Kwargs,
+    Done,
 }
 
-#[derive(Default)]
-pub struct ScheduleLine {
-    pub timestamp: chrono::DateTime<Utc>,
-    pub duration: chrono::Duration,
-    pub is_infinite: bool,
-    pub priority: u8,
-    pub experiment: String,
-    pub scheduling_mode: String,
-    pub kwargs: Vec<String>,
-}
 
-impl ScheduleLine {
-    pub fn format(&self) -> String {
-        let mut kwargs_string = String::new();
-        for kw in self.kwargs.iter() {
-            kwargs_string.push(' ');
-            kwargs_string.extend(kw.chars());
-        }
-        let mut duration_string = String::new();
-        if self.is_infinite {
-            duration_string.push('-');
-        } else {
-            duration_string.extend(format!("{}", self.duration.num_minutes()).chars())
-        }
-        format!("{: <14} {} {} {} {}{}", self.timestamp.format("%Y%m%d %H:%M"), duration_string, self.priority, self.experiment, self.scheduling_mode, kwargs_string)
-    }
-}
 pub struct App {
     pub year_input: String,
     pub month_input: String,
@@ -62,7 +38,6 @@ pub struct App {
     pub schedule_lines: Vec<ScheduleLine>,
     pub current_screen: CurrentScreen,
     pub currently_editing: Option<CurrentlyEditing>,
-    pub edit_state: TableState,
 }
 
 impl App {
@@ -81,7 +56,6 @@ impl App {
             schedule_lines: vec![],
             current_screen: CurrentScreen::Main,
             currently_editing: None,
-            edit_state: TableState::default(),
         }
     }
 
@@ -89,7 +63,7 @@ impl App {
         if let Some(editing) = &self.currently_editing {
             match editing {
                 CurrentlyEditing::Year => {
-                    self.currently_editing = Some(CurrentlyEditing::Kwargs);
+                    self.currently_editing = Some(CurrentlyEditing::Done);
                 }
                 CurrentlyEditing::Month => {
                     self.currently_editing = Some(CurrentlyEditing::Year);
@@ -117,6 +91,9 @@ impl App {
                 }
                 CurrentlyEditing::Kwargs => {
                     self.currently_editing = Some(CurrentlyEditing::SchedulingMode);
+                }
+                CurrentlyEditing::Done => {
+                    self.currently_editing = Some(CurrentlyEditing::Kwargs);
                 }
             }
         }
@@ -152,14 +129,72 @@ impl App {
                     self.currently_editing = Some(CurrentlyEditing::Kwargs);
                 }
                 CurrentlyEditing::Kwargs => {
+                    self.currently_editing = Some(CurrentlyEditing::Done);
+                }
+                CurrentlyEditing::Done => {
                     self.currently_editing = Some(CurrentlyEditing::Year);
                 }
             }
         }
     }
 
-    pub fn save_entry(&mut self) {
-        self.schedule_lines.push(ScheduleLine::default());
+    fn create_line_from_inputs(&mut self) -> Result<ScheduleLine, ScheduleError> {
+        let year: u16 = self
+            .year_input
+            .parse()
+            .map_err(|_| ScheduleError::InvalidDate(format!("Bad year: {}", self.year_input)))?;
+        if year < 2000 || year > 2050 {
+            return Err(ScheduleError::InvalidDate(format!("Bad year: {year}")));
+        }
+        let month: u8 = self
+            .month_input
+            .parse()
+            .map_err(|_| ScheduleError::InvalidDate(format!("Bad month: {}", self.month_input)))?;
+        if month > 12 {
+            return Err(ScheduleError::InvalidDate(format!("Bad month: {month}")));
+        }
+        let day: u8 = self
+            .day_input
+            .parse()
+            .map_err(|_| ScheduleError::InvalidDate(format!("Bad day: {}", self.day_input)))?;
+        if day > 31 {
+            return Err(ScheduleError::InvalidDate(format!("Bad day: {day}")));
+        }
+        let hour: u8 = self
+            .month_input
+            .parse()
+            .map_err(|_| ScheduleError::InvalidDate(format!("Bad hour: {}", self.hour_input)))?;
+        if hour > 23 {
+            return Err(ScheduleError::InvalidTime(format!("Bad hour: {hour}")));
+        }
+        let minute: u8 = self.month_input.parse().map_err(|_| {
+            ScheduleError::InvalidDate(format!("Bad minute: {}", self.minute_input))
+        })?;
+        if minute > 59 {
+            return Err(ScheduleError::InvalidTime(format!("Bad minute: {minute}")));
+        }
+
+        let timestamp: DateTime<Utc> =
+            NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
+                .ok_or_else(|| ScheduleError::InvalidDate(format!("{year}{month}{day}")))?
+                .and_hms_opt(hour as u32, minute as u32, 0)
+                .ok_or_else(|| ScheduleError::InvalidTime(format!("{hour}:{minute}")))?
+                .and_utc();
+
+        let duration: Duration = parse_duration(&self.duration_input)?;
+
+        Ok(ScheduleLine {
+            timestamp,
+            duration,
+            ..Default::default()
+        })
+    }
+
+    pub fn save_entry(&mut self) -> Result<(), ScheduleError> {
+        let new_line = self.create_line_from_inputs()?;
+
+        // only clear the inputs if the line was valid
+        self.schedule_lines.push(new_line);
         self.year_input = String::new();
         self.month_input = String::new();
         self.day_input = String::new();
@@ -170,5 +205,7 @@ impl App {
         self.experiment_input = String::new();
         self.mode_input = String::new();
         self.kwarg_input = String::new();
+
+        Ok(())
     }
 }

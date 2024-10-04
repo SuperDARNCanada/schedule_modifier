@@ -1,20 +1,26 @@
 mod app;
 mod ui;
+mod schedule;
 
+use crate::app::{App, CurrentScreen, CurrentlyEditing};
+use crate::schedule::ScheduleError;
+use crate::ui::ui;
+use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+};
+use ratatui::crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
+use ratatui::crossterm::{event, execute};
+use ratatui::Terminal;
 use std::error::Error;
 use std::io;
-use ratatui::backend::{Backend, CrosstermBackend};
-use ratatui::crossterm::event::{EnableMouseCapture, DisableMouseCapture, Event, KeyCode, KeyEventKind};
-use ratatui::crossterm::{event, execute};
-use ratatui::crossterm::terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use ratatui::Terminal;
-use crate::app::{App, CurrentlyEditing, CurrentScreen};
-use crate::ui::ui;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // setup terminal
     enable_raw_mode()?;
-    let mut stderr = io::stderr();  // This is a special case. Normally using stdout is fine.
+    let mut stderr = io::stderr(); // This is a special case. Normally using stdout is fine.
     execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
 
     let backend = CrosstermBackend::new(stderr);
@@ -51,9 +57,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
             }
             match app.current_screen {
                 CurrentScreen::Main => match key.code {
-                    KeyCode::Char('a') | KeyCode::Char('r') => {
+                    KeyCode::Char('a') => {
                         app.current_screen = CurrentScreen::Adding;
                         app.currently_editing = Some(CurrentlyEditing::Year);
+                    }
+                    KeyCode::Char('r') => {
+                        app.current_screen = CurrentScreen::Removing;
+                        app.currently_editing = None;
                     }
                     KeyCode::Char('q') => {
                         app.current_screen = CurrentScreen::Exiting;
@@ -69,42 +79,67 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     _ => {}
                 },
-                CurrentScreen::Adding | CurrentScreen::Removing if key.kind == KeyEventKind::Press => {
+                CurrentScreen::Adding | CurrentScreen::Removing
+                    if key.kind == KeyEventKind::Press =>
+                {
                     match key.code {
                         KeyCode::Enter => {
                             if let Some(editing) = &app.currently_editing {
                                 match editing {
-                                    CurrentlyEditing::Year => {
-                                        app.currently_editing = Some(CurrentlyEditing::Month);
+                                    CurrentlyEditing::Done => {
+                                        match app.save_entry() {
+                                            Ok(_) => {
+                                                app.currently_editing = None;
+                                                app.current_screen = CurrentScreen::Main;
+                                            }
+                                            Err(e) => match e {
+                                                ScheduleError::InvalidDate(s) if s.contains("day") => {
+                                                    app.currently_editing = Some(CurrentlyEditing::Day)
+                                                }
+                                                ScheduleError::InvalidDate(s)
+                                                if s.contains("month") =>
+                                                    {
+                                                        app.currently_editing =
+                                                            Some(CurrentlyEditing::Month)
+                                                    }
+                                                ScheduleError::InvalidDate(_) => {
+                                                    app.currently_editing = Some(CurrentlyEditing::Year)
+                                                }
+                                                ScheduleError::InvalidTime(s)
+                                                if s.contains("minute") =>
+                                                    {
+                                                        app.currently_editing =
+                                                            Some(CurrentlyEditing::Minute)
+                                                    }
+                                                ScheduleError::InvalidTime(_) => {
+                                                    app.currently_editing = Some(CurrentlyEditing::Hour)
+                                                }
+                                                ScheduleError::InvalidDuration(_) => {
+                                                    app.currently_editing =
+                                                        Some(CurrentlyEditing::Duration)
+                                                }
+                                                ScheduleError::InvalidPriority(_) => {
+                                                    app.currently_editing =
+                                                        Some(CurrentlyEditing::Priority)
+                                                }
+                                                ScheduleError::InvalidExperiment(_) => {
+                                                    app.currently_editing =
+                                                        Some(CurrentlyEditing::Experiment)
+                                                }
+                                                ScheduleError::InvalidMode(_) => {
+                                                    app.currently_editing =
+                                                        Some(CurrentlyEditing::SchedulingMode)
+                                                }
+                                                ScheduleError::InvalidKwargs(_) => {
+                                                    app.currently_editing =
+                                                        Some(CurrentlyEditing::Kwargs)
+                                                }
+                                                _ => {},
+                                            },
+                                        }
                                     }
-                                    CurrentlyEditing::Month => {
-                                        app.currently_editing = Some(CurrentlyEditing::Day);
-                                    }
-                                    CurrentlyEditing::Day => {
-                                        app.currently_editing = Some(CurrentlyEditing::Hour);
-                                    }
-                                    CurrentlyEditing::Hour => {
-                                        app.currently_editing = Some(CurrentlyEditing::Minute);
-                                    }
-                                    CurrentlyEditing::Minute => {
-                                        app.currently_editing = Some(CurrentlyEditing::Duration);
-                                    }
-                                    CurrentlyEditing::Duration => {
-                                        app.currently_editing = Some(CurrentlyEditing::Priority);
-                                    }
-                                    CurrentlyEditing::Priority => {
-                                        app.currently_editing = Some(CurrentlyEditing::Experiment);
-                                    }
-                                    CurrentlyEditing::Experiment => {
-                                        app.currently_editing = Some(CurrentlyEditing::SchedulingMode);
-                                    }
-                                    CurrentlyEditing::SchedulingMode => {
-                                        app.currently_editing = Some(CurrentlyEditing::Kwargs);
-                                    }
-                                    CurrentlyEditing::Kwargs => {
-                                        app.save_entry();
-                                        app.currently_editing = None;
-                                        app.current_screen = CurrentScreen::Main;
+                                    _ => {
+                                        app.currently_editing = Some(CurrentlyEditing::Done);
                                     }
                                 }
                             }
@@ -142,6 +177,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                     CurrentlyEditing::Kwargs => {
                                         app.kwarg_input.pop();
                                     }
+                                    CurrentlyEditing::Done => {},
                                 }
                             }
                         }
@@ -188,6 +224,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                     CurrentlyEditing::Kwargs => {
                                         app.kwarg_input.push(value);
                                     }
+                                    CurrentlyEditing::Done => {},
                                 }
                             }
                         }
@@ -198,5 +235,4 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
             }
         }
     }
-
 }
