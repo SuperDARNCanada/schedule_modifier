@@ -1,7 +1,7 @@
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum ScheduleError {
     #[error("{0}")]
     InvalidDate(String),
@@ -29,7 +29,7 @@ pub enum ScheduleError {
 }
 
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct ScheduleLine {
     pub timestamp: DateTime<Utc>,
     pub duration: Duration,

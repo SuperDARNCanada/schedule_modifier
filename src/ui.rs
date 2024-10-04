@@ -140,7 +140,6 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             .style(Style::default().bg(Color::DarkGray));
 
         let area = centered_rect(60, 25, frame.area());
-        frame.render_widget(popup_block, area);
 
         let popup_chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -165,7 +164,6 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             ])
             .split(popup_chunks[0]);
 
-        let selection_block = Block::default().title("Selection").borders(Borders::ALL);
         let mut year_block = Paragraph::new(format!("Year: {}", app.year_input.clone()));
         let mut month_block = Paragraph::new(format!("Month: {}", app.month_input.clone()));
         let mut day_block = Paragraph::new(format!("Day: {}", app.day_input.clone()));
@@ -197,6 +195,8 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             CurrentlyEditing::Done => done_block = done_block.style(active_style),
         };
 
+        frame.render_widget(popup_block, area);
+
         frame.render_widget(year_block, line_chunks[0]);
         frame.render_widget(month_block, line_chunks[1]);
         frame.render_widget(day_block, line_chunks[2]);
@@ -209,8 +209,12 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         frame.render_widget(kwargs_block, line_chunks[9]);
         frame.render_widget(done_block, line_chunks[10]);
 
-        let selection_text = Paragraph::new("Possible selections").block(selection_block);
-        frame.render_widget(selection_text, popup_chunks[1]);
+        if app.last_err.is_some() {
+            let error_block = Block::default().title("Error").borders(Borders::ALL).style(Style::default().bg(Color::LightRed).fg(Color::Black));
+            let error_text = Paragraph::new(format!("{:?}", app.last_err.clone().unwrap())).block(error_block).wrap(Wrap { trim: true });
+            frame.render_widget(error_text, popup_chunks[1]);
+        }
+
     }
 
     if let CurrentScreen::Exiting = app.current_screen {
