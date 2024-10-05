@@ -1,4 +1,5 @@
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
+use std::fmt::{Display, Formatter, Write};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -25,9 +26,25 @@ pub enum ScheduleError {
     InvalidKwargs(String),
 
     #[error("Missing fields")]
-    MissingFields
+    MissingFields,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SchedulingMode {
+    #[default]
+    Common,
+    Discretionary,
+    Special,
+}
+impl Display for SchedulingMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Common => Ok(f.write_str("common")?),
+            Self::Discretionary => Ok(f.write_str("discretionary")?),
+            Self::Special => Ok(f.write_str("special")?),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct ScheduleLine {
@@ -36,7 +53,7 @@ pub struct ScheduleLine {
     pub is_infinite: bool,
     pub priority: u8,
     pub experiment: String,
-    pub scheduling_mode: String,
+    pub scheduling_mode: SchedulingMode,
     pub kwargs: Vec<String>,
 }
 
@@ -55,7 +72,7 @@ pub fn parse_duration(dur: &String) -> Result<Duration, ScheduleError> {
         dur.parse()
             .map_err(|_| ScheduleError::InvalidDuration(dur.clone()))?,
     )
-        .ok_or_else(|| ScheduleError::InvalidDuration(dur.clone()))
+    .ok_or_else(|| ScheduleError::InvalidDuration(dur.clone()))
 }
 
 impl TryFrom<&String> for ScheduleLine {
@@ -78,10 +95,22 @@ impl TryFrom<&String> for ScheduleLine {
             duration = parse_duration(&fields[2])?;
         }
 
-        let priority: u8 = fields[3].parse().map_err(|_| ScheduleError::InvalidPriority(fields[3].clone()))?;
+        let priority: u8 = fields[3]
+            .parse()
+            .map_err(|_| ScheduleError::InvalidPriority(fields[3].clone()))?;
         if priority > 20 {
-            return Err(ScheduleError::InvalidPriority(format!("{} > 20", fields[3].clone())));
+            return Err(ScheduleError::InvalidPriority(format!(
+                "{} > 20",
+                fields[3].clone()
+            )));
         }
+
+        let scheduling_mode = match fields[5].as_str() {
+            "common" => SchedulingMode::Common,
+            "discretionary" => SchedulingMode::Discretionary,
+            "special" => SchedulingMode::Special,
+            _ => return Err(ScheduleError::InvalidMode(fields[5].clone())),
+        };
 
         Ok(ScheduleLine {
             timestamp,
@@ -89,7 +118,7 @@ impl TryFrom<&String> for ScheduleLine {
             is_infinite,
             priority,
             experiment: fields[4].clone(),
-            scheduling_mode: fields[5].clone(),
+            scheduling_mode,
             kwargs: fields[6..].into(),
         })
     }

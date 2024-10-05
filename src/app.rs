@@ -1,10 +1,12 @@
-use crate::schedule::*;
+use crate::schedule::{parse_duration, ScheduleError, ScheduleLine, SchedulingMode};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
+use ratatui::widgets::ListState;
 
 pub enum CurrentScreen {
     Main,
     Adding,
     Removing,
+    Selecting,
     Exiting,
 }
 
@@ -22,6 +24,15 @@ pub enum CurrentlyEditing {
     Done,
 }
 
+pub struct ModeList {
+    modes: Vec<SchedulingMode>,
+    pub state: ListState,
+}
+
+pub struct ScheduleList {
+    pub(crate) lines: Vec<ScheduleLine>,
+    pub state: ListState,
+}
 
 pub struct App {
     pub year_input: String,
@@ -32,9 +43,10 @@ pub struct App {
     pub duration_input: String,
     pub priority_input: String,
     pub experiment_input: String,
-    pub mode_input: String,
+    pub mode_selection: SchedulingMode,
+    pub mode_list: ModeList,
     pub kwarg_input: String,
-    pub schedule_lines: Vec<ScheduleLine>,
+    pub schedule_list: ScheduleList,
     pub current_screen: CurrentScreen,
     pub currently_editing: Option<CurrentlyEditing>,
     pub last_err: Option<ScheduleError>,
@@ -51,9 +63,20 @@ impl App {
             duration_input: String::new(),
             priority_input: String::new(),
             experiment_input: String::new(),
-            mode_input: String::new(),
+            mode_selection: SchedulingMode::Common,
+            mode_list: ModeList {
+                modes: vec![
+                    SchedulingMode::Common,
+                    SchedulingMode::Discretionary,
+                    SchedulingMode::Special,
+                ],
+                state: ListState::default(),
+            },
             kwarg_input: String::new(),
-            schedule_lines: vec![],
+            schedule_list: ScheduleList {
+                lines: vec![],
+                state: ListState::default(),
+            },
             current_screen: CurrentScreen::Main,
             currently_editing: None,
             last_err: None,
@@ -145,34 +168,44 @@ impl App {
             .parse()
             .map_err(|_| ScheduleError::InvalidDate(format!("Bad year: {}", self.year_input)))?;
         if year < 2000 || year > 2050 {
-            return Err(ScheduleError::InvalidDate(format!("Bad year: {year} not in range [2000, 2050]")));
+            return Err(ScheduleError::InvalidDate(format!(
+                "Bad year: {year} not in range [2000, 2050]"
+            )));
         }
         let month: u8 = self
             .month_input
             .parse()
             .map_err(|_| ScheduleError::InvalidDate(format!("Bad month: {}", self.month_input)))?;
         if month == 0 || month > 12 {
-            return Err(ScheduleError::InvalidDate(format!("Bad month: {month} not in range [1, 12]")));
+            return Err(ScheduleError::InvalidDate(format!(
+                "Bad month: {month} not in range [1, 12]"
+            )));
         }
         let day: u8 = self
             .day_input
             .parse()
             .map_err(|_| ScheduleError::InvalidDate(format!("Bad day: {}", self.day_input)))?;
         if day == 0 || day > 31 {
-            return Err(ScheduleError::InvalidDate(format!("Bad day: {day} not in range [1, 31]")));
+            return Err(ScheduleError::InvalidDate(format!(
+                "Bad day: {day} not in range [1, 31]"
+            )));
         }
         let hour: u8 = self
             .hour_input
             .parse()
             .map_err(|_| ScheduleError::InvalidTime(format!("Bad hour: {}", self.hour_input)))?;
         if hour > 23 {
-            return Err(ScheduleError::InvalidTime(format!("Bad hour: {hour} not in range [0, 23]")));
+            return Err(ScheduleError::InvalidTime(format!(
+                "Bad hour: {hour} not in range [0, 23]"
+            )));
         }
         let minute: u8 = self.minute_input.parse().map_err(|_| {
             ScheduleError::InvalidTime(format!("Bad minute: {}", self.minute_input))
         })?;
         if minute > 59 {
-            return Err(ScheduleError::InvalidTime(format!("Bad minute: {minute} not in range [0, 59]")));
+            return Err(ScheduleError::InvalidTime(format!(
+                "Bad minute: {minute} not in range [0, 59]"
+            )));
         }
 
         let timestamp: DateTime<Utc> =
@@ -190,17 +223,18 @@ impl App {
         } else {
             duration = parse_duration(&self.duration_input)?;
         }
-        let priority: u8 = self.priority_input.parse().map_err(|_| ScheduleError::InvalidPriority(self.priority_input.clone()))?;
+        let priority: u8 = self
+            .priority_input
+            .parse()
+            .map_err(|_| ScheduleError::InvalidPriority(self.priority_input.clone()))?;
         if priority > 20 {
             return Err(ScheduleError::InvalidPriority(format!("{priority} > 20")));
         }
 
         if self.experiment_input.len() == 0 {
-            return Err(ScheduleError::InvalidExperiment(self.experiment_input.clone()));
-        }
-
-        if ! [String::from("common"), String::from("discretionary"), String::from("special")].contains(&self.mode_input) {
-            return Err(ScheduleError::InvalidMode(format!("{} not one of 'common', 'discretionary', or 'special'", self.mode_input)));
+            return Err(ScheduleError::InvalidExperiment(
+                self.experiment_input.clone(),
+            ));
         }
 
         Ok(ScheduleLine {
@@ -209,7 +243,7 @@ impl App {
             is_infinite,
             priority,
             experiment: self.experiment_input.clone(),
-            scheduling_mode: self.mode_input.clone(),
+            scheduling_mode: self.mode_selection.clone(),
             kwargs: self.kwarg_input.split(' ').map(|s| s.to_string()).collect(),
         })
     }
@@ -220,10 +254,10 @@ impl App {
             Err(e) => {
                 self.last_err = Some(e.clone());
                 return Err(e);
-            },
+            }
             Ok(new_line) => {
                 self.last_err = None;
-                self.schedule_lines.push(new_line);
+                self.schedule_list.lines.push(new_line);
                 self.year_input = String::new();
                 self.month_input = String::new();
                 self.day_input = String::new();
@@ -232,10 +266,16 @@ impl App {
                 self.duration_input = String::new();
                 self.priority_input = String::new();
                 self.experiment_input = String::new();
-                self.mode_input = String::new();
+                self.mode_selection = SchedulingMode::Common;
                 self.kwarg_input = String::new();
-                return Ok(())
+                return Ok(());
             }
+        }
+    }
+
+    pub fn remove_schedule_line(&mut self) {
+        if let Some(x) = self.schedule_list.state.selected() {
+            _ = self.schedule_list.lines.remove(x);
         }
     }
 }

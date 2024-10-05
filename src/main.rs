@@ -1,6 +1,6 @@
 mod app;
-mod ui;
 mod schedule;
+mod ui;
 
 use crate::app::{App, CurrentScreen, CurrentlyEditing};
 use crate::schedule::ScheduleError;
@@ -51,7 +51,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
         terminal.draw(|f| ui(f, app))?;
 
         if let Event::Key(key) = event::read()? {
-            if key.kind == event::KeyEventKind::Release {
+            if key.kind == KeyEventKind::Release {
                 // Skip events that are not KeyEventKind::Press
                 continue;
             }
@@ -79,158 +79,166 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     _ => {}
                 },
-                CurrentScreen::Adding | CurrentScreen::Removing
-                    if key.kind == KeyEventKind::Press =>
-                {
-                    match key.code {
-                        KeyCode::Enter => {
-                            if let Some(editing) = &app.currently_editing {
-                                match editing {
-                                    CurrentlyEditing::Done => {
-                                        match app.save_entry() {
-                                            Ok(_) => {
-                                                app.currently_editing = None;
-                                                app.current_screen = CurrentScreen::Main;
-                                            }
-                                            Err(e) => match e {
-                                                ScheduleError::InvalidDate(s) if s.contains("day") => {
-                                                    app.currently_editing = Some(CurrentlyEditing::Day)
-                                                }
-                                                ScheduleError::InvalidDate(s)
-                                                if s.contains("month") =>
-                                                    {
-                                                        app.currently_editing =
-                                                            Some(CurrentlyEditing::Month)
-                                                    }
-                                                ScheduleError::InvalidDate(_) => {
-                                                    app.currently_editing = Some(CurrentlyEditing::Year)
-                                                }
-                                                ScheduleError::InvalidTime(s)
-                                                if s.contains("minute") =>
-                                                    {
-                                                        app.currently_editing =
-                                                            Some(CurrentlyEditing::Minute)
-                                                    }
-                                                ScheduleError::InvalidTime(_) => {
-                                                    app.currently_editing = Some(CurrentlyEditing::Hour)
-                                                }
-                                                ScheduleError::InvalidDuration(_) => {
-                                                    app.currently_editing =
-                                                        Some(CurrentlyEditing::Duration)
-                                                }
-                                                ScheduleError::InvalidPriority(_) => {
-                                                    app.currently_editing =
-                                                        Some(CurrentlyEditing::Priority)
-                                                }
-                                                ScheduleError::InvalidExperiment(_) => {
-                                                    app.currently_editing =
-                                                        Some(CurrentlyEditing::Experiment)
-                                                }
-                                                ScheduleError::InvalidMode(_) => {
-                                                    app.currently_editing =
-                                                        Some(CurrentlyEditing::SchedulingMode)
-                                                }
-                                                ScheduleError::InvalidKwargs(_) => {
-                                                    app.currently_editing =
-                                                        Some(CurrentlyEditing::Kwargs)
-                                                }
-                                                _ => {},
-                                            },
-                                        }
-                                    }
-                                    _ => {
-                                        app.currently_editing = Some(CurrentlyEditing::Done);
-                                    }
-                                }
-                            }
-                        }
-                        KeyCode::Backspace => {
-                            if let Some(editing) = &app.currently_editing {
-                                match editing {
-                                    CurrentlyEditing::Year => {
-                                        app.year_input.pop();
-                                    }
-                                    CurrentlyEditing::Month => {
-                                        app.month_input.pop();
-                                    }
-                                    CurrentlyEditing::Day => {
-                                        app.day_input.pop();
-                                    }
-                                    CurrentlyEditing::Hour => {
-                                        app.hour_input.pop();
-                                    }
-                                    CurrentlyEditing::Minute => {
-                                        app.minute_input.pop();
-                                    }
-                                    CurrentlyEditing::Duration => {
-                                        app.duration_input.pop();
-                                    }
-                                    CurrentlyEditing::Priority => {
-                                        app.priority_input.pop();
-                                    }
-                                    CurrentlyEditing::Experiment => {
-                                        app.experiment_input.pop();
-                                    }
-                                    CurrentlyEditing::SchedulingMode => {
-                                        app.mode_input.pop();
-                                    }
-                                    CurrentlyEditing::Kwargs => {
-                                        app.kwarg_input.pop();
-                                    }
-                                    CurrentlyEditing::Done => {},
-                                }
-                            }
-                        }
-                        KeyCode::Esc => {
-                            app.current_screen = CurrentScreen::Main;
-                            app.currently_editing = None;
-                        }
-                        KeyCode::Tab | KeyCode::Down => {
-                            app.forward_toggle();
-                        }
-                        KeyCode::Up => {
-                            app.backward_toggle();
-                        }
-                        KeyCode::Char(value) => {
-                            if let Some(editing) = &app.currently_editing {
-                                match editing {
-                                    CurrentlyEditing::Year => {
-                                        app.year_input.push(value);
-                                    }
-                                    CurrentlyEditing::Month => {
-                                        app.month_input.push(value);
-                                    }
-                                    CurrentlyEditing::Day => {
-                                        app.day_input.push(value);
-                                    }
-                                    CurrentlyEditing::Hour => {
-                                        app.hour_input.push(value);
-                                    }
-                                    CurrentlyEditing::Minute => {
-                                        app.minute_input.push(value);
-                                    }
-                                    CurrentlyEditing::Duration => {
-                                        app.duration_input.push(value);
-                                    }
-                                    CurrentlyEditing::Priority => {
-                                        app.priority_input.push(value);
-                                    }
-                                    CurrentlyEditing::Experiment => {
-                                        app.experiment_input.push(value);
-                                    }
-                                    CurrentlyEditing::SchedulingMode => {
-                                        app.mode_input.push(value);
-                                    }
-                                    CurrentlyEditing::Kwargs => {
-                                        app.kwarg_input.push(value);
-                                    }
-                                    CurrentlyEditing::Done => {},
-                                }
-                            }
-                        }
-                        _ => {}
+                CurrentScreen::Removing => match key.code {
+                    KeyCode::Char('q') => {
+                        app.current_screen = CurrentScreen::Exiting;
                     }
-                }
+                    KeyCode::Enter => {
+                        app.current_screen = CurrentScreen::Main;
+                        app.remove_schedule_line();
+                    }
+                    KeyCode::Down | KeyCode::Tab => {
+                        app.schedule_list.state.select_next();
+                    }
+                    KeyCode::Up => {
+                        app.schedule_list.state.select_previous();
+                    }
+                    KeyCode::Char('g') => {
+                        app.schedule_list.state.select_first();
+                    }
+                    KeyCode::Char('G') => {
+                        app.schedule_list.state.select_last();
+                    }
+                    _ => {}
+                },
+                CurrentScreen::Adding if key.kind == KeyEventKind::Press => match key.code {
+                    KeyCode::Enter => {
+                        if let Some(editing) = &app.currently_editing {
+                            match editing {
+                                CurrentlyEditing::Done => match app.save_entry() {
+                                    Ok(_) => {
+                                        app.currently_editing = None;
+                                        app.current_screen = CurrentScreen::Main;
+                                    }
+                                    Err(e) => match e {
+                                        ScheduleError::InvalidDate(s) if s.contains("day") => {
+                                            app.currently_editing = Some(CurrentlyEditing::Day)
+                                        }
+                                        ScheduleError::InvalidDate(s) if s.contains("month") => {
+                                            app.currently_editing = Some(CurrentlyEditing::Month)
+                                        }
+                                        ScheduleError::InvalidDate(_) => {
+                                            app.currently_editing = Some(CurrentlyEditing::Year)
+                                        }
+                                        ScheduleError::InvalidTime(s) if s.contains("minute") => {
+                                            app.currently_editing = Some(CurrentlyEditing::Minute)
+                                        }
+                                        ScheduleError::InvalidTime(_) => {
+                                            app.currently_editing = Some(CurrentlyEditing::Hour)
+                                        }
+                                        ScheduleError::InvalidDuration(_) => {
+                                            app.currently_editing = Some(CurrentlyEditing::Duration)
+                                        }
+                                        ScheduleError::InvalidPriority(_) => {
+                                            app.currently_editing = Some(CurrentlyEditing::Priority)
+                                        }
+                                        ScheduleError::InvalidExperiment(_) => {
+                                            app.currently_editing =
+                                                Some(CurrentlyEditing::Experiment)
+                                        }
+                                        ScheduleError::InvalidMode(_) => {
+                                            app.currently_editing =
+                                                Some(CurrentlyEditing::SchedulingMode)
+                                        }
+                                        ScheduleError::InvalidKwargs(_) => {
+                                            app.currently_editing = Some(CurrentlyEditing::Kwargs)
+                                        }
+                                        _ => {}
+                                    },
+                                },
+                                _ => {
+                                    app.forward_toggle();
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::End => {
+                        if let Some(_) = &app.currently_editing {
+                            app.currently_editing = Some(CurrentlyEditing::Done);
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        if let Some(editing) = &app.currently_editing {
+                            match editing {
+                                CurrentlyEditing::Year => {
+                                    app.year_input.pop();
+                                }
+                                CurrentlyEditing::Month => {
+                                    app.month_input.pop();
+                                }
+                                CurrentlyEditing::Day => {
+                                    app.day_input.pop();
+                                }
+                                CurrentlyEditing::Hour => {
+                                    app.hour_input.pop();
+                                }
+                                CurrentlyEditing::Minute => {
+                                    app.minute_input.pop();
+                                }
+                                CurrentlyEditing::Duration => {
+                                    app.duration_input.pop();
+                                }
+                                CurrentlyEditing::Priority => {
+                                    app.priority_input.pop();
+                                }
+                                CurrentlyEditing::Experiment => {
+                                    app.experiment_input.pop();
+                                }
+                                CurrentlyEditing::SchedulingMode => {}
+                                CurrentlyEditing::Kwargs => {
+                                    app.kwarg_input.pop();
+                                }
+                                CurrentlyEditing::Done => {}
+                            }
+                        }
+                    }
+                    KeyCode::Esc => {
+                        app.current_screen = CurrentScreen::Main;
+                        app.currently_editing = None;
+                    }
+                    KeyCode::Tab | KeyCode::Down => {
+                        app.forward_toggle();
+                    }
+                    KeyCode::Up => {
+                        app.backward_toggle();
+                    }
+                    KeyCode::Char(value) => {
+                        if let Some(editing) = &app.currently_editing {
+                            match editing {
+                                CurrentlyEditing::Year => {
+                                    app.year_input.push(value);
+                                }
+                                CurrentlyEditing::Month => {
+                                    app.month_input.push(value);
+                                }
+                                CurrentlyEditing::Day => {
+                                    app.day_input.push(value);
+                                }
+                                CurrentlyEditing::Hour => {
+                                    app.hour_input.push(value);
+                                }
+                                CurrentlyEditing::Minute => {
+                                    app.minute_input.push(value);
+                                }
+                                CurrentlyEditing::Duration => {
+                                    app.duration_input.push(value);
+                                }
+                                CurrentlyEditing::Priority => {
+                                    app.priority_input.push(value);
+                                }
+                                CurrentlyEditing::Experiment => {
+                                    app.experiment_input.push(value);
+                                }
+                                CurrentlyEditing::SchedulingMode => {}
+                                CurrentlyEditing::Kwargs => {
+                                    app.kwarg_input.push(value);
+                                }
+                                CurrentlyEditing::Done => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }

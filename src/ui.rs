@@ -27,24 +27,24 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
 
     frame.render_widget(title, chunks[0]);
 
-    let mut list_items = Vec::<ListItem>::new();
-
-    for line in &app.schedule_lines {
-        list_items.push(ListItem::new(Line::from(Span::styled(
-            line.format(),
-            Style::default().fg(Color::Yellow),
-        ))));
-    }
-
-    let list = List::new(list_items);
-
+    let schedule_block = Block::new()
+        .title(Line::raw("Current schedule").centered())
+        .borders(Borders::TOP)
+        .style(Style::default());
+    let list_items: Vec<ListItem> = app
+        .schedule_list
+        .lines
+        .iter()
+        .map(|line| ListItem::from(line.format()).style(Style::default().fg(Color::Yellow)))
+        .collect();
+    let list = List::new(list_items).block(schedule_block).highlight_style(Style::default().bg(Color::Blue).fg(Color::LightYellow));
     frame.render_widget(list, chunks[1]);
 
     let current_navigation_text = vec![
         // The first half of the text
         match app.current_screen {
             CurrentScreen::Main => Span::styled("Normal Mode", Style::default().fg(Color::Green)),
-            CurrentScreen::Adding => {
+            CurrentScreen::Adding | CurrentScreen::Selecting => {
                 Span::styled("Adding Mode", Style::default().fg(Color::Yellow))
             }
             CurrentScreen::Removing => {
@@ -91,10 +91,9 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                         "Editing Keyword Arguments",
                         Style::default().fg(Color::Green),
                     ),
-                    CurrentlyEditing::Done => Span::styled(
-                        "Confirm entry",
-                        Style::default().fg(Color::Green),
-                    ),
+                    CurrentlyEditing::Done => {
+                        Span::styled("Confirm entry", Style::default().fg(Color::Green))
+                    }
                 }
             } else {
                 Span::styled("Not Editing Anything", Style::default().fg(Color::DarkGray))
@@ -109,15 +108,19 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         match app.current_screen {
             CurrentScreen::Main => Span::styled(
                 "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
-                Style::default().fg(Color::Red),
+                Style::default().fg(Color::LightGreen),
             ),
-            CurrentScreen::Adding | CurrentScreen::Removing => Span::styled(
-                "(ESC) to cancel/(Tab) to switch boxes/enter to complete",
-                Style::default().fg(Color::Red),
+            CurrentScreen::Adding => Span::styled(
+                "(ESC) to cancel / (Tab)/(↑)/(↓) to switch field / enter to complete",
+                Style::default().fg(Color::LightGreen),
             ),
             CurrentScreen::Exiting => Span::styled(
                 "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
-                Style::default().fg(Color::Red),
+                Style::default().fg(Color::LightGreen),
+            ),
+            CurrentScreen::Selecting | CurrentScreen::Removing => Span::styled(
+                "(ESC) to cancel / (↑)/(↓) to switch selection / enter to select",
+                Style::default().fg(Color::LightGreen),
             ),
         }
     };
@@ -175,7 +178,8 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
             Paragraph::new(format!("Priority: {}", app.priority_input.clone()));
         let mut experiment_block =
             Paragraph::new(format!("Experiment: {}", app.experiment_input.clone()));
-        let mut mode_block = Paragraph::new(format!("Scheduling Mode: {}", app.mode_input.clone()));
+        let mut mode_block =
+            Paragraph::new(format!("Scheduling Mode: {}", app.mode_selection.clone()));
         let mut kwargs_block = Paragraph::new(format!("Kwargs: {}", app.kwarg_input.clone()));
         let mut done_block = Paragraph::new("Enter");
 
@@ -210,23 +214,27 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
         frame.render_widget(done_block, line_chunks[10]);
 
         if app.last_err.is_some() {
-            let error_block = Block::default().title("Error").borders(Borders::ALL).style(Style::default().bg(Color::LightRed).fg(Color::Black));
-            let error_text = Paragraph::new(format!("{:?}", app.last_err.clone().unwrap())).block(error_block).wrap(Wrap { trim: true });
+            let error_block = Block::default()
+                .title("Error")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::LightRed).fg(Color::Black));
+            let error_text = Paragraph::new(format!("{:?}", app.last_err.clone().unwrap()))
+                .block(error_block)
+                .wrap(Wrap { trim: true });
             frame.render_widget(error_text, popup_chunks[1]);
         }
-
     }
 
     if let CurrentScreen::Exiting = app.current_screen {
         frame.render_widget(Clear, frame.area()); //this clears the entire screen and anything already drawn
         let popup_block = Block::default()
-            .title("Y/N")
+            .title("Confirm")
             .borders(Borders::NONE)
             .style(Style::default().bg(Color::DarkGray));
 
         let exit_text = Text::styled(
             "Would you like to write the new schedule? (y/n)",
-            Style::default().fg(Color::Red),
+            Style::default().fg(Color::LightBlue),
         );
         // the `trim: false` will stop the text from being cut off when over the edge of the block
         let exit_paragraph = Paragraph::new(exit_text)
