@@ -237,6 +237,21 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             }
                         }
                     }
+                    KeyCode::Right => {
+                        if let Some(editing) = &app.currently_editing {
+                            match editing {
+                                CurrentlyEditing::Experiment | CurrentlyEditing::SchedulingMode => {
+                                    app.current_screen = CurrentScreen::Selecting;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    KeyCode::Left => {
+                        if let CurrentScreen::Selecting = &app.current_screen {
+                            app.current_screen = CurrentScreen::Adding;
+                        }
+                    }
                     _ => {}
                 },
                 _ => {}

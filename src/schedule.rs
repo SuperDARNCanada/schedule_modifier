@@ -1,5 +1,7 @@
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use std::fmt::{Display, Formatter, Write};
+use ratatui::text::Line;
+use ratatui::widgets::ListItem;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -146,5 +148,13 @@ impl ScheduleLine {
             self.scheduling_mode,
             kwargs_string
         )
+    }
+
+    pub fn to_list_item(&self, index: usize) -> ListItem {
+        let bg_color = match index % 2 {
+            0 => NORMAL_ROW_COLOR,
+            _ => ALT_ROW_COLOR,
+        };
+        ListItem::new(Line::styled(self.format(), TEXT_COLOR)).bg(bg_color)
     }
 }

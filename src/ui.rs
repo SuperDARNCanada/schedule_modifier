@@ -5,6 +5,9 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
 
+pub const NORMAL_ROW_COLOR: Color = Color::DarkGray;
+pub const ALT_ROW_COLOR: Color = Color::Blue;
+
 pub fn ui(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -81,10 +84,10 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
                         Span::styled("Editing Priority", Style::default().fg(Color::Green))
                     }
                     CurrentlyEditing::Experiment => {
-                        Span::styled("Editing Experiment", Style::default().fg(Color::Green))
+                        Span::styled("Selecting Experiment", Style::default().fg(Color::Green))
                     }
                     CurrentlyEditing::SchedulingMode => Span::styled(
-                        "Editing Scheduling Mode",
+                        "Selecting Scheduling Mode",
                         Style::default().fg(Color::LightGreen),
                     ),
                     CurrentlyEditing::Kwargs => Span::styled(

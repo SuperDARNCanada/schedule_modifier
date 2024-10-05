@@ -34,6 +34,42 @@ pub struct ScheduleList {
     pub state: ListState,
 }
 
+impl ScheduleList {
+    fn next(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i >= self.lines.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    fn previous(&mut self) {
+        let i = match self.state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.lines.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.state.select(Some(i));
+    }
+
+    fn unselect(&mut self) {
+        let offset = self.state.offset();
+        self.state.select(None);
+        *self.state.offset_mut() = offset;
+    }
+}
+
 pub struct App {
     pub year_input: String,
     pub month_input: String,
