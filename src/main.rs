@@ -5,6 +5,7 @@ mod ui;
 use crate::app::{App, CurrentScreen, CurrentlyEditing};
 use crate::schedule::ScheduleError;
 use crate::ui::ui;
+use clap::Parser;
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
@@ -15,9 +16,31 @@ use ratatui::crossterm::terminal::{
 use ratatui::crossterm::{event, execute};
 use ratatui::Terminal;
 use std::error::Error;
-use std::io;
+use std::{env, io};
+use std::path::PathBuf;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct ModifierArgs {
+    /// Three-letter site ID of radar to schedule
+    #[arg()]
+    site_id: String,
+
+    /// Directory containing schedule files (overrides BOREALIS_SCHEDULES from environment)
+    #[arg()]
+    schedule_dir: Option<PathBuf>,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let cli = ModifierArgs::parse();
+    let mut schedule_path = if let Some(x) = cli.schedule_dir {
+        x
+    } else {
+        PathBuf::from(env::var("BOREALIS_SCHEDULES")?)
+    };
+    schedule_path.push(cli.site_id);
+    schedule_path.set_extension("scd");
+
     // setup terminal
     enable_raw_mode()?;
     let mut stderr = io::stderr(); // This is a special case. Normally using stdout is fine.
@@ -27,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let mut app = App::new();
+    let mut app = App::new(schedule_path);
     let res = run_app(&mut terminal, &mut app);
 
     // restore terminal
@@ -88,16 +111,40 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.remove_schedule_line();
                     }
                     KeyCode::Down | KeyCode::Tab => {
-                        app.schedule_list.state.select_next();
+                        app.schedule_list.next();
                     }
                     KeyCode::Up => {
-                        app.schedule_list.state.select_previous();
+                        app.schedule_list.previous();
                     }
                     KeyCode::Char('g') => {
-                        app.schedule_list.state.select_first();
+                        app.schedule_list.first();
                     }
                     KeyCode::Char('G') => {
-                        app.schedule_list.state.select_last();
+                        app.schedule_list.last();
+                    }
+                    KeyCode::Esc => {
+                        app.current_screen = CurrentScreen::Main;
+                    }
+                    _ => {}
+                },
+                CurrentScreen::Selecting => match key.code {
+                    KeyCode::Char('q') => {
+                        app.current_screen = CurrentScreen::Exiting;
+                    }
+                    KeyCode::Enter | KeyCode::Left => {
+                        app.current_screen = CurrentScreen::Adding;
+                    }
+                    KeyCode::Down | KeyCode::Tab => {
+                        app.mode_list.next();
+                    }
+                    KeyCode::Up => {
+                        app.mode_list.previous();
+                    }
+                    KeyCode::Char('g') => {
+                        app.mode_list.first();
+                    }
+                    KeyCode::Char('G') => {
+                        app.mode_list.last();
                     }
                     _ => {}
                 },

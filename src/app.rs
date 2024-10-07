@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use crate::schedule::{parse_duration, ScheduleError, ScheduleLine, SchedulingMode};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use ratatui::widgets::ListState;
@@ -10,6 +11,7 @@ pub enum CurrentScreen {
     Exiting,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum CurrentlyEditing {
     Year,
     Month,
@@ -25,8 +27,55 @@ pub enum CurrentlyEditing {
 }
 
 pub struct ModeList {
-    modes: Vec<SchedulingMode>,
+    pub(crate) modes: Vec<SchedulingMode>,
     pub state: ListState,
+}
+
+
+impl ModeList {
+    pub fn next(&mut self) {
+        if self.modes.len() > 0 {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i >= self.modes.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
+                }
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
+    }
+
+    pub fn previous(&mut self) {
+        if self.modes.len() > 0 {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i == 0 {
+                        self.modes.len() - 1
+                    } else {
+                        i - 1
+                    }
+                }
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
+    }
+
+    pub fn first(&mut self) {
+        if self.modes.len() > 0 {
+            self.state.select(Some(0));
+        }
+    }
+
+    pub fn last(&mut self) {
+        if self.modes.len() > 0 {
+            self.state.select(Some(self.modes.len() - 1));
+        }
+    }
 }
 
 pub struct ScheduleList {
@@ -35,35 +84,60 @@ pub struct ScheduleList {
 }
 
 impl ScheduleList {
-    fn next(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i >= self.lines.len() - 1 {
-                    0
-                } else {
-                    i + 1
+    pub fn next(&mut self) {
+        if self.lines.len() == 0 {
+            self.unselect()
+        }
+        else {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i >= self.lines.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
                 }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
     }
 
-    fn previous(&mut self) {
-        let i = match self.state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.lines.len() - 1
-                } else {
-                    i - 1
+    pub fn previous(&mut self) {
+        if self.lines.len() == 0 {
+            self.unselect()
+        } else {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i == 0 {
+                        self.lines.len() - 1
+                    } else {
+                        i - 1
+                    }
                 }
-            }
-            None => 0,
-        };
-        self.state.select(Some(i));
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
     }
 
-    fn unselect(&mut self) {
+    pub fn first(&mut self) {
+        if self.lines.len() == 0 {
+            self.unselect()
+        } else {
+            self.state.select(Some(0));
+        }
+    }
+
+    pub fn last(&mut self) {
+        if self.lines.len() == 0 {
+            self.unselect()
+        } else {
+            self.state.select(Some(self.lines.len() - 1));
+        }
+    }
+
+    pub fn unselect(&mut self) {
         let offset = self.state.offset();
         self.state.select(None);
         *self.state.offset_mut() = offset;
@@ -79,18 +153,19 @@ pub struct App {
     pub duration_input: String,
     pub priority_input: String,
     pub experiment_input: String,
-    pub mode_selection: SchedulingMode,
     pub mode_list: ModeList,
     pub kwarg_input: String,
     pub schedule_list: ScheduleList,
     pub current_screen: CurrentScreen,
     pub currently_editing: Option<CurrentlyEditing>,
     pub last_err: Option<ScheduleError>,
+    pub scd_path: PathBuf,
 }
 
 impl App {
-    pub fn new() -> App {
-        App {
+    pub fn new(scd_path: PathBuf) -> App {
+        let current_schedule = ScheduleLine::load_schedule(&scd_path).expect("Unable to open schedule file");
+        let mut app = App {
             year_input: String::new(),
             month_input: String::new(),
             day_input: String::new(),
@@ -99,7 +174,6 @@ impl App {
             duration_input: String::new(),
             priority_input: String::new(),
             experiment_input: String::new(),
-            mode_selection: SchedulingMode::Common,
             mode_list: ModeList {
                 modes: vec![
                     SchedulingMode::Common,
@@ -116,7 +190,11 @@ impl App {
             current_screen: CurrentScreen::Main,
             currently_editing: None,
             last_err: None,
-        }
+            scd_path,
+        };
+        app.mode_list.first();
+        app.schedule_list.lines = current_schedule;
+        app
     }
 
     pub fn backward_toggle(&mut self) {
@@ -273,13 +351,17 @@ impl App {
             ));
         }
 
+        let scheduling_mode = if let Some(i) = self.mode_list.state.selected() {
+            self.mode_list.modes[i]
+        } else { SchedulingMode::default() };
+
         Ok(ScheduleLine {
             timestamp,
             duration,
             is_infinite,
             priority,
             experiment: self.experiment_input.clone(),
-            scheduling_mode: self.mode_selection.clone(),
+            scheduling_mode,
             kwargs: self.kwarg_input.split(' ').map(|s| s.to_string()).collect(),
         })
     }
@@ -302,7 +384,6 @@ impl App {
                 self.duration_input = String::new();
                 self.priority_input = String::new();
                 self.experiment_input = String::new();
-                self.mode_selection = SchedulingMode::Common;
                 self.kwarg_input = String::new();
                 return Ok(());
             }

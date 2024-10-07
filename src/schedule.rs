@@ -1,8 +1,15 @@
+use std::io;
+use std::error::Error;
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::io::BufRead;
+use std::path::Path;
+use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 use thiserror::Error;
+use crate::ui::{ALT_ROW_COLOR, BG_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
 
 #[derive(Error, Debug, Clone)]
 pub enum ScheduleError {
@@ -156,5 +163,23 @@ impl ScheduleLine {
             _ => ALT_ROW_COLOR,
         };
         ListItem::new(Line::styled(self.format(), TEXT_COLOR)).bg(bg_color)
+    }
+
+    pub fn load_schedule<P>(filename: P) -> Result<Vec<ScheduleLine>, Box<dyn Error>>
+    where P: AsRef<Path> {
+        let schedule_file = File::open(filename)?;
+
+        let mut schedule_lines = vec![];
+        for line in io::BufReader::new(schedule_file).lines().flatten() {
+            schedule_lines.extend([ScheduleLine::try_from(&line)?]);
+        }
+        schedule_lines.reverse();
+        Ok(schedule_lines)
+    }
+}
+
+impl SchedulingMode {
+    pub fn to_list_item(&self) -> ListItem {
+        ListItem::new(Line::styled(format!("{self}"), TEXT_COLOR)).bg(BG_COLOR)
     }
 }
