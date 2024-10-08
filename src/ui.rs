@@ -1,18 +1,21 @@
 use crate::app::{App, CurrentScreen, CurrentlyEditing};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::prelude::Alignment;
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, HighlightSpacing, List, ListItem, Paragraph, Wrap};
 use ratatui::Frame;
-use ratatui::prelude::Alignment;
 
 pub const BG_COLOR: Color = Color::DarkGray;
 pub const NORMAL_ROW_COLOR: Color = Color::DarkGray;
-pub const ALT_ROW_COLOR: Color = Color::Blue;
-pub const TEXT_COLOR: Color = Color::LightGreen;
+pub const ALT_ROW_COLOR: Color = Color::Indexed(237);
+pub const EXP_ROW_LIGHT: Color = Color::Indexed(54);
+pub const EXP_ROW_DARK: Color = Color::Indexed(237);
+pub const TEXT_COLOR: Color = Color::Indexed(10);
 pub const SELECTION_STYLE_FG: Color = Color::LightGreen;
 pub const SELECTION_HEADER_BG: Color = Color::DarkGray;
-
+pub const KEY_COLOR: Color = Color::LightYellow;
+pub const HINT_COLOR: Color = Color::LightBlue;
 
 pub fn ui(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -33,7 +36,7 @@ pub fn ui(frame: &mut Frame, app: &mut App) {
     }
 
     if let CurrentScreen::Exiting = app.current_screen {
-        render_exit_screen(frame);
+        render_exit_screen(frame, app);
     }
 }
 
@@ -46,7 +49,7 @@ fn render_header(frame: &mut Frame, area: Rect) {
         "Modify Borealis schedule",
         Style::default().fg(Color::Green),
     ))
-        .block(title_block);
+    .block(title_block);
 
     frame.render_widget(title, area);
 }
@@ -109,48 +112,27 @@ fn render_footer(frame: &mut Frame, app: &mut App, area: Rect) {
             }
             CurrentScreen::Exiting => Span::styled("Exiting", Style::default().fg(Color::LightRed)),
         }
-            .to_owned(),
+        .to_owned(),
         // A white divider bar to separate the two sections
         Span::styled(" | ", Style::default().fg(Color::White)),
         // The final section of the text, with hints on what the user is editing
         {
+            let style = Style::default().fg(Color::Green);
             if let Some(editing) = &app.currently_editing {
                 match editing {
-                    CurrentlyEditing::Year => {
-                        Span::styled("Editing Year", Style::default().fg(Color::Green))
+                    CurrentlyEditing::Year => Span::styled("Editing Year", style),
+                    CurrentlyEditing::Month => Span::styled("Editing Month", style),
+                    CurrentlyEditing::Day => Span::styled("Editing Day", style),
+                    CurrentlyEditing::Hour => Span::styled("Editing Hour", style),
+                    CurrentlyEditing::Minute => Span::styled("Editing Minute", style),
+                    CurrentlyEditing::Duration => Span::styled("Editing Duration", style),
+                    CurrentlyEditing::Priority => Span::styled("Editing Priority", style),
+                    CurrentlyEditing::Experiment => Span::styled("Selecting Experiment", style),
+                    CurrentlyEditing::SchedulingMode => {
+                        Span::styled("Selecting Scheduling Mode", style)
                     }
-                    CurrentlyEditing::Month => {
-                        Span::styled("Editing Month", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::Day => {
-                        Span::styled("Editing Day", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::Hour => {
-                        Span::styled("Editing Hour", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::Minute => {
-                        Span::styled("Editing Minute", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::Duration => {
-                        Span::styled("Editing Duration", Style::default().fg(Color::LightGreen))
-                    }
-                    CurrentlyEditing::Priority => {
-                        Span::styled("Editing Priority", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::Experiment => {
-                        Span::styled("Selecting Experiment", Style::default().fg(Color::Green))
-                    }
-                    CurrentlyEditing::SchedulingMode => Span::styled(
-                        "Selecting Scheduling Mode",
-                        Style::default().fg(Color::LightGreen),
-                    ),
-                    CurrentlyEditing::Kwargs => Span::styled(
-                        "Editing Keyword Arguments",
-                        Style::default().fg(Color::Green),
-                    ),
-                    CurrentlyEditing::Done => {
-                        Span::styled("Confirm entry", Style::default().fg(Color::Green))
-                    }
+                    CurrentlyEditing::Kwargs => Span::styled("Editing Keyword Arguments", style),
+                    CurrentlyEditing::Done => Span::styled("Confirm entry", style),
                 }
             } else {
                 Span::styled("Not Editing Anything", Style::default().fg(Color::DarkGray))
@@ -161,29 +143,76 @@ fn render_footer(frame: &mut Frame, app: &mut App, area: Rect) {
     let mode_footer = Paragraph::new(Line::from(current_navigation_text))
         .block(Block::default().borders(Borders::ALL));
 
-    let current_keys_hint = {
+    let current_keys_hint: Line = {
         match app.current_screen {
-            CurrentScreen::Main => Span::styled(
-                "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
-                Style::default().fg(Color::LightGreen),
-            ),
-            CurrentScreen::Adding => Span::styled(
-                "(ESC) to cancel / (Tab) or ↑↓ to switch field / enter to complete",
-                Style::default().fg(Color::LightGreen),
-            ),
-            CurrentScreen::Exiting => Span::styled(
-                "(q) to quit / (a) to add a schedule line / (r) to remove a schedule line",
-                Style::default().fg(Color::LightGreen),
-            ),
-            CurrentScreen::Selecting | CurrentScreen::Removing => Span::styled(
-                "Use ↓↑ to move, g/G to go top/bottom, enter to select",
-                Style::default().fg(Color::LightGreen),
-            ),
+            CurrentScreen::Main | CurrentScreen::Exiting => vec![
+                Span::styled("(q)", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to quit / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("(a)", Style::default().fg(KEY_COLOR)),
+                Span::styled(
+                    " to add a schedule line / ",
+                    Style::default().fg(HINT_COLOR),
+                ),
+                Span::styled("(r)", Style::default().fg(KEY_COLOR)),
+                Span::styled(
+                    " to remove a schedule line",
+                    Style::default().fg(HINT_COLOR),
+                ),
+            ]
+            .into(),
+            CurrentScreen::Adding => vec![
+                Span::styled("(ESC)", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to cancel / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("(Tab)", Style::default().fg(KEY_COLOR)),
+                Span::styled(" or ", Style::default().fg(HINT_COLOR)),
+                Span::styled("↑↓", Style::default().fg(KEY_COLOR)),
+                Span::styled(" or ", Style::default().fg(HINT_COLOR)),
+                Span::styled("End", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to switch field / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("→ ←", Style::default().fg(KEY_COLOR)),
+                Span::styled(
+                    " to start/finish selecting ",
+                    Style::default().fg(HINT_COLOR),
+                ),
+                Span::styled("Enter", Style::default().fg(HINT_COLOR)),
+                Span::styled(" to complete", Style::default().fg(KEY_COLOR)),
+            ]
+            .into(),
+            CurrentScreen::Removing => vec![
+                Span::styled("(ESC)", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to cancel / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("↑↓", Style::default().fg(KEY_COLOR)),
+                Span::styled(" or ", Style::default().fg(HINT_COLOR)),
+                Span::styled("PgUp", Style::default().fg(KEY_COLOR)),
+                Span::styled("/", Style::default().fg(HINT_COLOR)),
+                Span::styled("PgDn", Style::default().fg(KEY_COLOR)),
+                Span::styled(" or ", Style::default().fg(HINT_COLOR)),
+                Span::styled("g", Style::default().fg(KEY_COLOR)),
+                Span::styled("/", Style::default().fg(HINT_COLOR)),
+                Span::styled("G", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to switch field / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("Enter", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to select", Style::default().fg(HINT_COLOR)),
+            ]
+            .into(),
+            CurrentScreen::Selecting => vec![
+                Span::styled("(ESC)", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to cancel / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("↑↓", Style::default().fg(KEY_COLOR)),
+                Span::styled(" or ", Style::default().fg(HINT_COLOR)),
+                Span::styled("g", Style::default().fg(KEY_COLOR)),
+                Span::styled("/", Style::default().fg(HINT_COLOR)),
+                Span::styled("G", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to switch field / ", Style::default().fg(HINT_COLOR)),
+                Span::styled("Enter", Style::default().fg(KEY_COLOR)),
+                Span::styled(" to select", Style::default().fg(HINT_COLOR)),
+            ]
+            .into(),
         }
     };
 
     let key_notes_footer =
-        Paragraph::new(Line::from(current_keys_hint)).block(Block::default().borders(Borders::ALL));
+        Paragraph::new(current_keys_hint).block(Block::default().borders(Borders::ALL));
 
     let footer_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -200,12 +229,12 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
         .borders(Borders::ALL)
         .style(Style::default().bg(BG_COLOR));
 
-    let area = centered_rect(60, 25, frame.area());
+    let area = centered_rect(40, 25, frame.area());
 
     let popup_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .margin(1)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
     let line_chunks = Layout::default()
@@ -230,22 +259,34 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
     let mut day_block = Paragraph::new(format!("Day: {}", app.day_input.clone()));
     let mut hour_block = Paragraph::new(format!("Hour: {}", app.hour_input.clone()));
     let mut minute_block = Paragraph::new(format!("Minute: {}", app.minute_input.clone()));
-    let mut duration_block =
-        Paragraph::new(format!("Duration: {}", app.duration_input.clone()));
-    let mut priority_block =
-        Paragraph::new(format!("Priority: {}", app.priority_input.clone()));
-    let mut experiment_block =
-        Paragraph::new(format!("Experiment: {}", app.experiment_input.clone()));
+    let mut duration_block = Paragraph::new(format!("Duration: {}", app.duration_input.clone()));
+    let mut priority_block = Paragraph::new(format!("Priority: {}", app.priority_input.clone()));
+    let mut experiment_block = if let Some(i) = app.experiment_list.state.selected() {
+        Paragraph::new(format!(
+            "Experiment: {}",
+            app.experiment_list.items[i].clone()
+        ))
+    } else {
+        Paragraph::new("Experiment: ")
+    };
     let mut mode_block = if let Some(i) = app.mode_list.state.selected() {
-        Paragraph::new(format!("Scheduling Mode: {}", app.mode_list.modes[i].clone()))
-    } else { Paragraph::new("Scheduling Mode: ") };
+        Paragraph::new(format!(
+            "Scheduling Mode: {}",
+            app.mode_list.modes[i].clone()
+        ))
+    } else {
+        Paragraph::new("Scheduling Mode: ")
+    };
 
     let mut kwargs_block = Paragraph::new(format!("Kwargs: {}", app.kwarg_input.clone()));
     let mut done_block = Paragraph::new("Enter");
 
     let active_style = Style::default().bg(Color::LightYellow).fg(Color::Black);
 
-    match app.currently_editing.unwrap_or_else(|| CurrentlyEditing::Year) {
+    match app
+        .currently_editing
+        .unwrap_or_else(|| CurrentlyEditing::Year)
+    {
         CurrentlyEditing::Year => year_block = year_block.style(active_style),
         CurrentlyEditing::Month => month_block = month_block.style(active_style),
         CurrentlyEditing::Day => day_block = day_block.style(active_style),
@@ -273,80 +314,204 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
     frame.render_widget(kwargs_block, line_chunks[9]);
     frame.render_widget(done_block, line_chunks[10]);
 
-    if let CurrentScreen::Selecting = app.current_screen {
-        // We create two blocks, one is for the header (outer) and the other is for list (inner).
-        let outer_block = Block::default()
-            .borders(Borders::NONE)
-            .fg(TEXT_COLOR)
-            .bg(SELECTION_HEADER_BG)
-            .title("Scheduling Modes")
-            .title_alignment(Alignment::Center);
-        let inner_block = Block::default()
-            .borders(Borders::NONE)
-            .fg(TEXT_COLOR)
-            .bg(NORMAL_ROW_COLOR);
+    let title = match app.currently_editing {
+        Some(CurrentlyEditing::Experiment) => "Possible Experiments",
+        Some(CurrentlyEditing::SchedulingMode) => "Scheduling Modes",
+        _ => {
+            if app.last_err.is_some() {
+                "Error"
+            } else {
+                "Restrictions"
+            }
+        }
+    };
 
-        // We get the inner area from outer_block. We'll use this area later to render the table.
-        let outer_area = popup_chunks[1];
-        let inner_area = outer_block.inner(outer_area);
+    // We create two blocks, one is for the header (outer) and the other is for list (inner).
+    let outer_block = Block::default()
+        .borders(Borders::ALL)
+        .fg(TEXT_COLOR)
+        .bg(SELECTION_HEADER_BG)
+        .title(title)
+        .title_alignment(Alignment::Center);
+    let inner_block = Block::default()
+        .borders(Borders::NONE)
+        .fg(TEXT_COLOR)
+        .bg(NORMAL_ROW_COLOR);
 
-        // We can render the header in outer_area.
-        frame.render_widget(outer_block, outer_area);
+    // We get the inner area from outer_block. We'll use this area later to render the table.
+    let outer_area = popup_chunks[1];
+    let inner_area = outer_block.inner(outer_area);
 
-        // Iterate through all elements in the `mode_list` and stylize them.
-        let items: Vec<ListItem> = app
-            .mode_list
-            .modes
-            .iter()
-            .map(|mode_item| mode_item.to_list_item())
-            .collect();
+    // We can render the header in outer_area.
+    frame.render_widget(outer_block, outer_area);
 
-        // Create a List from all list items and highlight the currently selected one
-        let items = List::new(items)
-            .block(inner_block)
-            .highlight_style(
-                Style::default()
-                    .add_modifier(Modifier::BOLD)
-                    .add_modifier(Modifier::REVERSED)
-                    .fg(SELECTION_STYLE_FG),
-            )
-            .highlight_symbol(">")
-            .highlight_spacing(HighlightSpacing::Always);
-
-        // We can now render the item list
-        frame.render_stateful_widget(items, inner_area, &mut app.mode_list.state);
-    }
-
+    let paragraph: Paragraph;
     if app.last_err.is_some() {
-        let error_block = Block::default()
-            .title("Error")
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::LightRed).fg(Color::Black));
-        let error_text = Paragraph::new(format!("{:?}", app.last_err.clone().unwrap()))
-            .block(error_block)
+        paragraph = Paragraph::new(format!("{:?}", app.last_err.clone().unwrap()))
+            .style(Style::default().bg(Color::Indexed(196)).fg(Color::Black))
+            .block(inner_block)
             .wrap(Wrap { trim: true });
-        frame.render_widget(error_text, popup_chunks[1]);
+        frame.render_widget(paragraph, inner_area);
+    } else if let Some(editing) = app.currently_editing {
+        match editing {
+            CurrentlyEditing::Experiment => {
+                // Iterate through all elements in the `mode_list` and stylize them.
+                let items: Vec<ListItem> = app
+                        .experiment_list
+                        .items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, item)| {
+                            let bg_color = match i % 2 {
+                                0 => EXP_ROW_DARK,
+                                _ => EXP_ROW_LIGHT,
+                            };
+                            ListItem::new(Line::styled(item, TEXT_COLOR)).bg(bg_color)
+                        })
+                        .collect();
+                // Create a List from all list items and highlight the currently selected one
+                let items = List::new(items)
+                    .block(inner_block)
+                    .highlight_style(
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .add_modifier(Modifier::REVERSED)
+                            .fg(SELECTION_STYLE_FG),
+                    )
+                    .highlight_symbol(">")
+                    .highlight_spacing(HighlightSpacing::Always);
+                frame.render_stateful_widget(items, inner_area, &mut app.experiment_list.state);
+            }
+            CurrentlyEditing::SchedulingMode => {
+                let items: Vec<ListItem> = app
+                    .mode_list
+                    .modes
+                    .iter()
+                    .map(|mode_item| mode_item.to_list_item())
+                    .collect();
+                // Create a List from all list items and highlight the currently selected one
+                let items = List::new(items)
+                    .block(inner_block)
+                    .highlight_style(
+                        Style::default()
+                            .add_modifier(Modifier::BOLD)
+                            .add_modifier(Modifier::REVERSED)
+                            .fg(SELECTION_STYLE_FG),
+                    )
+                    .highlight_symbol(">")
+                    .highlight_spacing(HighlightSpacing::Always);
+                frame.render_stateful_widget(items, inner_area, &mut app.mode_list.state);
+            }
+            _ => {
+                let text = match editing {
+                    CurrentlyEditing::Year => "2000 <= year <= 2050",
+                    CurrentlyEditing::Month => "1 <= month <= 12",
+                    CurrentlyEditing::Day => "1 <= day <= 31",
+                    CurrentlyEditing::Hour => "0 <= hour <= 23",
+                    CurrentlyEditing::Minute => "0 <= minute <= 59",
+                    CurrentlyEditing::Duration => "in minutes, > 0",
+                    CurrentlyEditing::Priority => "0 <= priority <= 20",
+                    _ => "",
+                };
+                paragraph = Paragraph::new(text)
+                    .style(Style::default().fg(Color::LightCyan))
+                    .block(inner_block)
+                    .wrap(Wrap { trim: true })
+                    .alignment(Alignment::Center);
+                frame.render_widget(paragraph, inner_area);
+            }
+        }
     }
 }
 
-fn render_exit_screen(frame: &mut Frame) {
-    frame.render_widget(Clear, frame.area()); //this clears the entire screen and anything already drawn
+fn render_exit_screen(frame: &mut Frame, app: &mut App) {
+    frame.render_widget(Clear, frame.area()); // this clears the entire screen and anything already drawn
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(1),
+            Constraint::Length(3),
+        ])
+        .split(frame.area());
+
+    // The body, giving the diff in the schedule file
+    let diff_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .margin(1)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(chunks[1]);
+    let add_block = Block::default()
+        .title("Additions")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(BG_COLOR).fg(Color::LightGreen));
+    let delete_block = Block::default()
+        .title("Deletions")
+        .borders(Borders::ALL)
+        .style(Style::default().bg(BG_COLOR).fg(Color::LightRed));
+
+    let mut add_text = String::new();
+    let mut del_text = String::new();
+    app.additions.sort();
+    app.deletions.sort();
+    for line in app.additions.iter().rev() {
+        add_text.extend(line.format().chars());
+        add_text.push('\n');
+    }
+    for line in app.deletions.iter().rev() {
+        del_text.extend(line.format().chars());
+        del_text.push('\n');
+    }
+    let add_widget = Paragraph::new(add_text).block(add_block);
+    let del_widget = Paragraph::new(del_text).block(delete_block);
+    frame.render_widget(add_widget, diff_chunks[0]);
+    frame.render_widget(del_widget, diff_chunks[1]);
+
+    // The footer, detailing how to proceed
     let popup_block = Block::default()
         .title("Confirm")
+        .title_alignment(Alignment::Center)
         .borders(Borders::NONE)
         .style(Style::default().bg(BG_COLOR));
+    let exit_text: Line = vec![
+        Span::styled("Write to file ", Style::default().fg(Color::LightBlue)),
+        Span::styled(
+            "(y)",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  /  Cancel changes and quit ",
+            Style::default().fg(Color::LightBlue),
+        ),
+        Span::styled(
+            "(n)",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  /  Go back to editing ",
+            Style::default().fg(Color::LightBlue),
+        ),
+        Span::styled(
+            "(b)",
+            Style::default()
+                .fg(Color::LightYellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]
+    .into();
 
-    let exit_text = Text::styled(
-        "Would you like to write the new schedule? (y/n)",
-        Style::default().fg(Color::LightBlue),
-    );
     // the `trim: false` will stop the text from being cut off when over the edge of the block
     let exit_paragraph = Paragraph::new(exit_text)
+        .centered()
         .block(popup_block)
         .wrap(Wrap { trim: false });
 
-    let area = centered_rect(60, 25, frame.area());
-    frame.render_widget(exit_paragraph, area);
+    frame.render_widget(exit_paragraph, chunks[2]);
 }
 
 /// helper function to create a centered rect using up certain percentage of the available rect `r`

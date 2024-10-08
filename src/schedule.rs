@@ -1,15 +1,10 @@
-use std::io;
-use std::error::Error;
+use crate::ui::{ALT_ROW_COLOR, BG_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
 use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
-use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::BufRead;
-use std::path::Path;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::ListItem;
+use std::fmt::{Display, Formatter};
 use thiserror::Error;
-use crate::ui::{ALT_ROW_COLOR, BG_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
 
 #[derive(Error, Debug, Clone)]
 pub enum ScheduleError {
@@ -26,19 +21,13 @@ pub enum ScheduleError {
     InvalidPriority(String),
 
     #[error("{0}")]
-    InvalidExperiment(String),
-
-    #[error("{0}")]
     InvalidMode(String),
-
-    #[error("{0}")]
-    InvalidKwargs(String),
 
     #[error("Missing fields")]
     MissingFields,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub enum SchedulingMode {
     #[default]
     Common,
@@ -55,7 +44,7 @@ impl Display for SchedulingMode {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ScheduleLine {
     pub timestamp: DateTime<Utc>,
     pub duration: Duration,
@@ -68,7 +57,7 @@ pub struct ScheduleLine {
 
 pub fn parse_date(date: &String) -> Result<NaiveDate, ScheduleError> {
     NaiveDate::parse_from_str(date.as_str(), "%Y%m%d")
-        .map_err(|_| ScheduleError::InvalidDate(date.clone()))
+        .map_err(|_| ScheduleError::InvalidDate(format!("Expecting YYYYMMDD, got {}", date.clone())))
 }
 
 pub fn parse_time(time: &String) -> Result<NaiveTime, ScheduleError> {
@@ -163,18 +152,6 @@ impl ScheduleLine {
             _ => ALT_ROW_COLOR,
         };
         ListItem::new(Line::styled(self.format(), TEXT_COLOR)).bg(bg_color)
-    }
-
-    pub fn load_schedule<P>(filename: P) -> Result<Vec<ScheduleLine>, Box<dyn Error>>
-    where P: AsRef<Path> {
-        let schedule_file = File::open(filename)?;
-
-        let mut schedule_lines = vec![];
-        for line in io::BufReader::new(schedule_file).lines().flatten() {
-            schedule_lines.extend([ScheduleLine::try_from(&line)?]);
-        }
-        schedule_lines.reverse();
-        Ok(schedule_lines)
     }
 }
 

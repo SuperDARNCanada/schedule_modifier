@@ -1,7 +1,11 @@
-use std::path::PathBuf;
 use crate::schedule::{parse_duration, ScheduleError, ScheduleLine, SchedulingMode};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use ratatui::widgets::ListState;
+use std::error::Error;
+use std::fs::File;
+use std::io;
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 
 pub enum CurrentScreen {
     Main,
@@ -26,11 +30,75 @@ pub enum CurrentlyEditing {
     Done,
 }
 
+pub struct ExperimentList {
+    pub(crate) items: Vec<String>,
+    pub state: ListState,
+}
+
+impl ExperimentList {
+    pub fn next(&mut self) {
+        if self.items.len() == 0 {
+            self.unselect()
+        } else {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i >= self.items.len() - 1 {
+                        0
+                    } else {
+                        i + 1
+                    }
+                }
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
+    }
+
+    pub fn previous(&mut self) {
+        if self.items.len() == 0 {
+            self.unselect()
+        } else {
+            let i = match self.state.selected() {
+                Some(i) => {
+                    if i == 0 {
+                        self.items.len() - 1
+                    } else {
+                        i - 1
+                    }
+                }
+                None => 0,
+            };
+            self.state.select(Some(i));
+        }
+    }
+
+    pub fn first(&mut self) {
+        if self.items.len() == 0 {
+            self.unselect()
+        } else {
+            self.state.select(Some(0));
+        }
+    }
+
+    pub fn last(&mut self) {
+        if self.items.len() == 0 {
+            self.unselect()
+        } else {
+            self.state.select(Some(self.items.len() - 1));
+        }
+    }
+
+    pub fn unselect(&mut self) {
+        let offset = self.state.offset();
+        self.state.select(None);
+        *self.state.offset_mut() = offset;
+    }
+}
+
 pub struct ModeList {
     pub(crate) modes: Vec<SchedulingMode>,
     pub state: ListState,
 }
-
 
 impl ModeList {
     pub fn next(&mut self) {
@@ -87,8 +155,7 @@ impl ScheduleList {
     pub fn next(&mut self) {
         if self.lines.len() == 0 {
             self.unselect()
-        }
-        else {
+        } else {
             let i = match self.state.selected() {
                 Some(i) => {
                     if i >= self.lines.len() - 1 {
@@ -152,7 +219,7 @@ pub struct App {
     pub minute_input: String,
     pub duration_input: String,
     pub priority_input: String,
-    pub experiment_input: String,
+    pub experiment_list: ExperimentList,
     pub mode_list: ModeList,
     pub kwarg_input: String,
     pub schedule_list: ScheduleList,
@@ -160,11 +227,16 @@ pub struct App {
     pub currently_editing: Option<CurrentlyEditing>,
     pub last_err: Option<ScheduleError>,
     pub scd_path: PathBuf,
+    pub additions: Vec<ScheduleLine>,
+    pub deletions: Vec<ScheduleLine>,
 }
 
 impl App {
-    pub fn new(scd_path: PathBuf) -> App {
-        let current_schedule = ScheduleLine::load_schedule(&scd_path).expect("Unable to open schedule file");
+    pub fn new(scd_path: PathBuf, exp_path: PathBuf) -> App {
+        let current_schedule =
+            Self::load_schedule(&scd_path).expect("Unable to open schedule file");
+        let available_experiments =
+            load_experiments(&exp_path).expect("Unable to find Borealis experiments");
         let mut app = App {
             year_input: String::new(),
             month_input: String::new(),
@@ -173,7 +245,10 @@ impl App {
             minute_input: String::new(),
             duration_input: String::new(),
             priority_input: String::new(),
-            experiment_input: String::new(),
+            experiment_list: ExperimentList {
+                items: available_experiments,
+                state: ListState::default(),
+            },
             mode_list: ModeList {
                 modes: vec![
                     SchedulingMode::Common,
@@ -191,6 +266,8 @@ impl App {
             currently_editing: None,
             last_err: None,
             scd_path,
+            additions: vec![],
+            deletions: vec![],
         };
         app.mode_list.first();
         app.schedule_list.lines = current_schedule;
@@ -345,22 +422,24 @@ impl App {
             return Err(ScheduleError::InvalidPriority(format!("{priority} > 20")));
         }
 
-        if self.experiment_input.len() == 0 {
-            return Err(ScheduleError::InvalidExperiment(
-                self.experiment_input.clone(),
-            ));
-        }
+        let experiment = if let Some(i) = self.experiment_list.state.selected() {
+            self.experiment_list.items[i].clone()
+        } else {
+            "normalscan".to_string()
+        };
 
         let scheduling_mode = if let Some(i) = self.mode_list.state.selected() {
             self.mode_list.modes[i]
-        } else { SchedulingMode::default() };
+        } else {
+            SchedulingMode::default()
+        };
 
         Ok(ScheduleLine {
             timestamp,
             duration,
             is_infinite,
             priority,
-            experiment: self.experiment_input.clone(),
+            experiment,
             scheduling_mode,
             kwargs: self.kwarg_input.split(' ').map(|s| s.to_string()).collect(),
         })
@@ -374,8 +453,11 @@ impl App {
                 return Err(e);
             }
             Ok(new_line) => {
+                self.additions.push(new_line.clone());
                 self.last_err = None;
                 self.schedule_list.lines.push(new_line);
+                self.schedule_list.lines.sort();
+                self.schedule_list.lines.reverse();
                 self.year_input = String::new();
                 self.month_input = String::new();
                 self.day_input = String::new();
@@ -383,7 +465,6 @@ impl App {
                 self.minute_input = String::new();
                 self.duration_input = String::new();
                 self.priority_input = String::new();
-                self.experiment_input = String::new();
                 self.kwarg_input = String::new();
                 return Ok(());
             }
@@ -392,7 +473,68 @@ impl App {
 
     pub fn remove_schedule_line(&mut self) {
         if let Some(x) = self.schedule_list.state.selected() {
-            _ = self.schedule_list.lines.remove(x);
+            self.deletions.push(self.schedule_list.lines.remove(x));
+        }
+        self.schedule_list.unselect();
+    }
+
+    pub fn load_schedule<P>(filename: P) -> Result<Vec<ScheduleLine>, Box<dyn Error>>
+    where
+        P: AsRef<Path>,
+    {
+        let schedule_file = File::open(filename)?;
+
+        let mut schedule_lines = vec![];
+        for line in io::BufReader::new(schedule_file).lines().flatten() {
+            schedule_lines.extend([ScheduleLine::try_from(&line)?]);
+        }
+        schedule_lines.reverse();
+        Ok(schedule_lines)
+    }
+
+    pub fn save_schedule(&self) -> Result<(), Box<dyn Error>> {
+        let mut backup_file = self.scd_path.clone();
+        backup_file.set_extension("scd.bak");
+        std::fs::copy(&self.scd_path, backup_file)?;
+
+        let mut schedule_file = File::create(&self.scd_path)?;
+        for line in self.schedule_list.lines.iter().rev() {
+            let mut chars = line.format().into_bytes();
+            chars.push(b'\n');
+            schedule_file.write_all(&*chars)?;
+        }
+        Ok(())
+    }
+}
+
+/// Loads in the names of all experiments (files) in `dir`, ignoring `superdarn_common_fields.py`
+fn load_experiments<P>(dir: P) -> Result<Vec<String>, Box<dyn Error>>
+where
+    P: AsRef<Path>,
+{
+    let mut files: Vec<String> = vec![];
+    let ignored_files = [
+        ".git",
+        ".gitignore",
+        "__init__",
+        "superdarn_common_fields",
+        "LICENSE",
+        "README",
+    ];
+    for entry in std::fs::read_dir(dir)? {
+        if let Ok(x) = entry {
+            if !x.metadata().unwrap().is_file() {
+                continue;
+            }
+            let stripped_path = x.path().with_extension("");
+            let filename = stripped_path.file_name().unwrap();
+            if ignored_files.contains(&filename.to_str().unwrap()) {
+                continue;
+            }
+            files.push(filename.to_str().unwrap().to_string());
         }
     }
+    files.sort();
+
+    Ok(files)
 }

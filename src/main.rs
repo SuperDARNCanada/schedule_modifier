@@ -16,8 +16,8 @@ use ratatui::crossterm::terminal::{
 use ratatui::crossterm::{event, execute};
 use ratatui::Terminal;
 use std::error::Error;
-use std::{env, io};
 use std::path::PathBuf;
+use std::{env, io};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -26,9 +26,13 @@ struct ModifierArgs {
     #[arg()]
     site_id: String,
 
-    /// Directory containing schedule files (overrides BOREALIS_SCHEDULES from environment)
+    /// Directory containing schedule files (overrides `BOREALIS_SCHEDULES` from environment)
     #[arg()]
     schedule_dir: Option<PathBuf>,
+
+    /// Path to borealis experiments directory (defaults to `$BOREALISPATH/src/borealis_experiments`)
+    #[arg()]
+    experiments_dir: Option<PathBuf>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -36,10 +40,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut schedule_path = if let Some(x) = cli.schedule_dir {
         x
     } else {
-        PathBuf::from(env::var("BOREALIS_SCHEDULES")?)
+        PathBuf::from(env::var("BOREALIS_SCHEDULES").expect("BOREALIS_SCHEDULES unset"))
     };
     schedule_path.push(cli.site_id);
     schedule_path.set_extension("scd");
+
+    let experiments_path = if let Some(x) = cli.experiments_dir {
+        x
+    } else {
+        let mut temp = PathBuf::from(env::var("BOREALISPATH").expect("BOREALISPATH unset"));
+        temp.push("src");
+        temp.push("borealis_experiments");
+        temp
+    };
 
     // setup terminal
     enable_raw_mode()?;
@@ -50,8 +63,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let mut app = App::new(schedule_path);
+    let mut app = App::new(schedule_path, experiments_path);
     let res = run_app(&mut terminal, &mut app);
+
+    if let Ok(true) = res {
+        app.save_schedule().unwrap();
+    }
 
     // restore terminal
     disable_raw_mode()?;
@@ -97,8 +114,11 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Char('y') => {
                         return Ok(true);
                     }
-                    KeyCode::Char('n') | KeyCode::Char('q') => {
+                    KeyCode::Char('n') => {
                         return Ok(false);
+                    }
+                    KeyCode::Char('b') => {
+                        app.current_screen = CurrentScreen::Main;
                     }
                     _ => {}
                 },
@@ -124,6 +144,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::Esc => {
                         app.current_screen = CurrentScreen::Main;
+                        app.schedule_list.unselect();
+                    }
+                    KeyCode::PageDown => {
+                        app.schedule_list.state.scroll_down_by(30);
+                    }
+                    KeyCode::PageUp => {
+                        app.schedule_list.state.scroll_up_by(30);
                     }
                     _ => {}
                 },
@@ -134,17 +161,29 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Enter | KeyCode::Left => {
                         app.current_screen = CurrentScreen::Adding;
                     }
-                    KeyCode::Down | KeyCode::Tab => {
-                        app.mode_list.next();
-                    }
-                    KeyCode::Up => {
-                        app.mode_list.previous();
-                    }
-                    KeyCode::Char('g') => {
-                        app.mode_list.first();
-                    }
-                    KeyCode::Char('G') => {
-                        app.mode_list.last();
+                    KeyCode::Down | KeyCode::Tab => match app.currently_editing {
+                        Some(CurrentlyEditing::Experiment) => app.experiment_list.next(),
+                        Some(CurrentlyEditing::SchedulingMode) => app.mode_list.next(),
+                        _ => {}
+                    },
+                    KeyCode::Up => match app.currently_editing {
+                        Some(CurrentlyEditing::Experiment) => app.experiment_list.previous(),
+                        Some(CurrentlyEditing::SchedulingMode) => app.mode_list.previous(),
+                        _ => {}
+                    },
+                    KeyCode::Char('g') => match app.currently_editing {
+                        Some(CurrentlyEditing::Experiment) => app.experiment_list.first(),
+                        Some(CurrentlyEditing::SchedulingMode) => app.mode_list.first(),
+                        _ => {}
+                    },
+                    KeyCode::Char('G') => match app.currently_editing {
+                        Some(CurrentlyEditing::Experiment) => app.experiment_list.last(),
+                        Some(CurrentlyEditing::SchedulingMode) => app.mode_list.last(),
+                        _ => {}
+                    },
+                    KeyCode::Esc => {
+                        app.current_screen = CurrentScreen::Main;
+                        app.currently_editing = None;
                     }
                     _ => {}
                 },
@@ -179,16 +218,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                         ScheduleError::InvalidPriority(_) => {
                                             app.currently_editing = Some(CurrentlyEditing::Priority)
                                         }
-                                        ScheduleError::InvalidExperiment(_) => {
-                                            app.currently_editing =
-                                                Some(CurrentlyEditing::Experiment)
-                                        }
                                         ScheduleError::InvalidMode(_) => {
                                             app.currently_editing =
                                                 Some(CurrentlyEditing::SchedulingMode)
-                                        }
-                                        ScheduleError::InvalidKwargs(_) => {
-                                            app.currently_editing = Some(CurrentlyEditing::Kwargs)
                                         }
                                         _ => {}
                                     },
@@ -228,14 +260,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                 CurrentlyEditing::Priority => {
                                     app.priority_input.pop();
                                 }
-                                CurrentlyEditing::Experiment => {
-                                    app.experiment_input.pop();
-                                }
-                                CurrentlyEditing::SchedulingMode => {}
                                 CurrentlyEditing::Kwargs => {
                                     app.kwarg_input.pop();
                                 }
-                                CurrentlyEditing::Done => {}
+                                _ => {}
                             }
                         }
                     }
@@ -273,14 +301,10 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                 CurrentlyEditing::Priority => {
                                     app.priority_input.push(value);
                                 }
-                                CurrentlyEditing::Experiment => {
-                                    app.experiment_input.push(value);
-                                }
-                                CurrentlyEditing::SchedulingMode => {}
                                 CurrentlyEditing::Kwargs => {
                                     app.kwarg_input.push(value);
                                 }
-                                CurrentlyEditing::Done => {}
+                                _ => {}
                             }
                         }
                     }
@@ -289,6 +313,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                             match editing {
                                 CurrentlyEditing::Experiment | CurrentlyEditing::SchedulingMode => {
                                     app.current_screen = CurrentScreen::Selecting;
+                                    app.last_err = None;
                                 }
                                 _ => {}
                             }
