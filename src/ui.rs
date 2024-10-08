@@ -409,8 +409,8 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
                     CurrentlyEditing::Day => "1 <= day <= 31",
                     CurrentlyEditing::Hour => "0 <= hour <= 23",
                     CurrentlyEditing::Minute => "0 <= minute <= 59",
-                    CurrentlyEditing::Duration => "in minutes, > 0",
-                    CurrentlyEditing::Priority => "0 <= priority <= 20",
+                    CurrentlyEditing::Duration => "in minutes, > 0\n1 day = 1440 min\n3 days = 4320 min\n5 days = 7200 min",
+                    CurrentlyEditing::Priority => "0 <= priority <= 20\n0 is lowest priority\n20 is highest priority\n",
                     _ => "",
                 };
                 paragraph = Paragraph::new(text)
