@@ -6,7 +6,7 @@ use ratatui::widgets::ListItem;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum ScheduleError {
     #[error("{0}")]
     InvalidDate(String),
@@ -158,5 +158,64 @@ impl ScheduleLine {
 impl SchedulingMode {
     pub fn to_list_item(&self) -> ListItem {
         ListItem::new(Line::styled(format!("{self}"), TEXT_COLOR)).bg(BG_COLOR)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+    use super::*;
+    use chrono::{NaiveDate, NaiveDateTime};
+
+    #[test]
+    fn test_parse_date() -> Result<(), Box<dyn Error>> {
+        assert_eq!(parse_date(&"20000101".to_string())?, NaiveDate::parse_from_str("20000101", "%Y%m%d")?);
+        Ok(())
+    }
+    #[test]
+    fn test_parse_bad_date() {
+        assert_eq!(parse_date(&"20000000".to_string()), Err(ScheduleError::InvalidDate("Expecting YYYYMMDD, got 20000000".to_string())))
+    }
+
+    #[test]
+    fn test_parse_time() -> Result<(), Box<dyn Error>> {
+        assert_eq!(parse_time(&"00:00".to_string())?, NaiveTime::parse_from_str("00:00", "%H:%M")?);
+        Ok(())
+    }
+    #[test]
+    fn test_parse_bad_time() {
+        assert_eq!(parse_time(&"24:00".to_string()), Err(ScheduleError::InvalidTime("24:00".to_string())))
+    }
+
+    #[test]
+    fn test_parse_duration() -> Result<(), Box<dyn Error>> {
+        assert_eq!(parse_duration(&"120".to_string())?, Duration::new(7200, 0).unwrap());
+        Ok(())
+    }
+    #[test]
+    fn test_parse_bad_duration() {
+        assert_eq!(parse_duration(&"one hundred".to_string()), Err(ScheduleError::InvalidDuration("one hundred".to_string())))
+    }
+
+    #[test]
+    fn scheduling_mode_formatting() {
+        assert_eq!(format!("{}", SchedulingMode::Common), "common".to_string());
+        assert_eq!(format!("{}", SchedulingMode::Discretionary), "discretionary".to_string());
+        assert_eq!(format!("{}", SchedulingMode::Special), "special".to_string());
+    }
+
+    #[test]
+    fn schedule_line_from_str() -> Result<(), Box<dyn Error>> {
+        assert_eq!(ScheduleLine {
+            timestamp: NaiveDateTime::parse_from_str("20000101 00:00", "%Y%m%d %H:%M")?.and_utc(),
+            duration: Duration::new(60, 0).unwrap(),
+            is_infinite: false,
+            priority: 0,
+            experiment: "normalscan".to_string(),
+            scheduling_mode: SchedulingMode::Common,
+            kwargs: vec![],
+        }, ScheduleLine::try_from(&"20000101 00:00 1 0 normalscan common".to_string())?);
+        Ok(())
     }
 }
