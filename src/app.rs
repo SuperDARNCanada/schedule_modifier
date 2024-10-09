@@ -1,5 +1,5 @@
-use crate::schedule::{parse_duration, ScheduleError, ScheduleLine, SchedulingMode};
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use crate::schedule::{ScdDuration, ScheduleError, ScheduleLine, SchedulingMode};
+use chrono::{DateTime, NaiveDate, Utc};
 use ratatui::widgets::ListState;
 use std::error::Error;
 use std::fs::File;
@@ -401,26 +401,15 @@ impl App {
 
         let timestamp: DateTime<Utc> =
             NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
-                .ok_or_else(|| ScheduleError::InvalidDate(format!("{year}{month}{day}")))?
+                .ok_or_else(|| ScheduleError::InvalidDate(format!("Expected valid date as YYYYMMDD, got {year:4}{month:2}{day:2}")))?
                 .and_hms_opt(hour as u32, minute as u32, 0)
-                .ok_or_else(|| ScheduleError::InvalidTime(format!("{hour}:{minute}")))?
+                .ok_or_else(|| ScheduleError::InvalidTime(format!("Expected valid time as HH:MM, got {hour:2}:{minute:2}")))?
                 .and_utc();
 
-        let duration: Duration;
-        let mut is_infinite = false;
-        if &self.duration_input == &"-".to_string() {
-            duration = Duration::default();
-            is_infinite = true;
-        } else {
-            duration = parse_duration(&self.duration_input)?;
-        }
         let priority: u8 = self
             .priority_input
             .parse()
             .map_err(|_| ScheduleError::InvalidPriority(self.priority_input.clone()))?;
-        if priority > 20 {
-            return Err(ScheduleError::InvalidPriority(format!("{priority} > 20")));
-        }
 
         let experiment = if let Some(i) = self.experiment_list.state.selected() {
             self.experiment_list.items[i].clone()
@@ -434,15 +423,14 @@ impl App {
             SchedulingMode::default()
         };
 
-        Ok(ScheduleLine {
+        ScheduleLine::new(
             timestamp,
-            duration,
-            is_infinite,
+            ScdDuration::try_from(&self.duration_input)?,
             priority,
-            experiment,
-            scheduling_mode,
-            kwargs: self.kwarg_input.split(' ').map(|s| s.to_string()).collect(),
-        })
+            &experiment,
+            &scheduling_mode,
+            self.kwarg_input.split(' ').map(|s| s.to_string()).collect(),
+        )
     }
 
     pub fn save_entry(&mut self) -> Result<(), ScheduleError> {
