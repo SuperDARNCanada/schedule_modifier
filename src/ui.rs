@@ -77,7 +77,7 @@ fn render_schedule(frame: &mut Frame, app: &mut App, area: Rect) {
     // Iterate through all elements in the `mode_list` and stylize them.
     let items: Vec<ListItem> = app
         .schedule_list
-        .lines
+        .items
         .iter()
         .enumerate()
         .map(|(i, schedule_item)| schedule_item.to_list_item(i))
@@ -272,7 +272,7 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
     let mut mode_block = if let Some(i) = app.mode_list.state.selected() {
         Paragraph::new(format!(
             "Scheduling Mode: {}",
-            app.mode_list.modes[i].clone()
+            app.mode_list.items[i].clone()
         ))
     } else {
         Paragraph::new("Scheduling Mode: ")
@@ -357,18 +357,18 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
             CurrentlyEditing::Experiment => {
                 // Iterate through all elements in the `mode_list` and stylize them.
                 let items: Vec<ListItem> = app
-                        .experiment_list
-                        .items
-                        .iter()
-                        .enumerate()
-                        .map(|(i, item)| {
-                            let bg_color = match i % 2 {
-                                0 => EXP_ROW_DARK,
-                                _ => EXP_ROW_LIGHT,
-                            };
-                            ListItem::new(Line::styled(item, TEXT_COLOR)).bg(bg_color)
-                        })
-                        .collect();
+                    .experiment_list
+                    .items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, item)| {
+                        let bg_color = match i % 2 {
+                            0 => EXP_ROW_DARK,
+                            _ => EXP_ROW_LIGHT,
+                        };
+                        ListItem::new(Line::styled(item, TEXT_COLOR)).bg(bg_color)
+                    })
+                    .collect();
                 // Create a List from all list items and highlight the currently selected one
                 let items = List::new(items)
                     .block(inner_block)
@@ -385,7 +385,7 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
             CurrentlyEditing::SchedulingMode => {
                 let items: Vec<ListItem> = app
                     .mode_list
-                    .modes
+                    .items
                     .iter()
                     .map(|mode_item| mode_item.to_list_item())
                     .collect();
@@ -409,8 +409,12 @@ fn render_editor(frame: &mut Frame, app: &mut App) {
                     CurrentlyEditing::Day => "1 <= day <= 31",
                     CurrentlyEditing::Hour => "0 <= hour <= 23",
                     CurrentlyEditing::Minute => "0 <= minute <= 59",
-                    CurrentlyEditing::Duration => "in minutes, > 0\n1 day = 1440 min\n3 days = 4320 min\n5 days = 7200 min",
-                    CurrentlyEditing::Priority => "0 <= priority <= 20\n0 is lowest priority\n20 is highest priority\n",
+                    CurrentlyEditing::Duration => {
+                        "in minutes, > 0\n1 day = 1440 min\n3 days = 4320 min\n5 days = 7200 min"
+                    }
+                    CurrentlyEditing::Priority => {
+                        "0 <= priority <= 20\n0 is lowest priority\n20 is highest priority\n"
+                    }
                     _ => "",
                 };
                 paragraph = Paragraph::new(text)
@@ -473,7 +477,7 @@ fn render_exit_screen(frame: &mut Frame, app: &mut App) {
         .title("Confirm")
         .title_alignment(Alignment::Center)
         .borders(Borders::NONE)
-        .style(Style::default().bg(BG_COLOR));
+        .style(Style::default().bg(Color::Black));
     let exit_text: Line = vec![
         Span::styled("Write to file ", Style::default().fg(Color::LightBlue)),
         Span::styled(

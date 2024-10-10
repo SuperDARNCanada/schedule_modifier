@@ -73,7 +73,10 @@ impl TryFrom<&String> for ScdDuration {
         } else {
             let dur = parse_duration(value)?;
             if dur.num_minutes() < 1 {
-                return Err(ScheduleError::InvalidDuration(format!("Expected minutes > 0, got {}", value.clone())))
+                return Err(ScheduleError::InvalidDuration(format!(
+                    "Expected minutes > 0, got {}",
+                    value.clone()
+                )));
             }
             Ok(ScdDuration::Finite(dur))
         }
@@ -90,27 +93,44 @@ pub struct ScheduleLine {
     pub kwargs: Vec<String>,
 }
 impl ScheduleLine {
-    pub fn new(timestamp: DateTime<Utc>,
-               duration: ScdDuration,
-               priority: u8,
-               experiment: &String,
-               scheduling_mode: &SchedulingMode,
-               kwargs: Vec<String>) -> Result<ScheduleLine, ScheduleError> {
-        if (timestamp < NaiveDateTime::parse_from_str("20000101 00:00", "%Y%m%d %H:%M").unwrap().and_utc()) ||
-            (timestamp > NaiveDateTime::parse_from_str("20510101 00:00", "%Y%m%d %H:%M").unwrap().and_utc()) {
-            return Err(ScheduleError::InvalidDate(format!("Expected date between years 2000 and 2049, got {}", timestamp)))
+    pub fn new(
+        timestamp: DateTime<Utc>,
+        duration: ScdDuration,
+        priority: u8,
+        experiment: &String,
+        scheduling_mode: &SchedulingMode,
+        kwargs: Vec<String>,
+    ) -> Result<ScheduleLine, ScheduleError> {
+        if (timestamp
+            < NaiveDateTime::parse_from_str("20000101 00:00", "%Y%m%d %H:%M")
+                .unwrap()
+                .and_utc())
+            || (timestamp
+                > NaiveDateTime::parse_from_str("20510101 00:00", "%Y%m%d %H:%M")
+                    .unwrap()
+                    .and_utc())
+        {
+            return Err(ScheduleError::InvalidDate(format!(
+                "Expected date between years 2000 and 2049, got {}",
+                timestamp
+            )));
         }
         if let ScdDuration::Infinite = duration {
             if priority > 0 {
-                return Err(ScheduleError::InvalidPriority("Cannot have priority > 0 for infinite schedule line".to_string()))
+                return Err(ScheduleError::InvalidPriority(
+                    "Cannot have priority > 0 for infinite schedule line".to_string(),
+                ));
             }
         } else if let ScdDuration::Finite(dur) = duration {
             if dur.num_minutes() < 1 {
-                return Err(ScheduleError::InvalidDuration(format!("Expected positive duration, got {}", dur)))
+                return Err(ScheduleError::InvalidDuration(format!(
+                    "Expected positive duration, got {}",
+                    dur
+                )));
             }
         }
         if priority > 20 {
-            return Err(ScheduleError::InvalidPriority(format!("{priority} > 20")))
+            return Err(ScheduleError::InvalidPriority(format!("{priority} > 20")));
         }
 
         Ok(ScheduleLine {
@@ -201,48 +221,79 @@ pub fn parse_time(time: &String) -> Result<NaiveTime, ScheduleError> {
 }
 
 pub fn parse_duration(dur: &String) -> Result<Duration, ScheduleError> {
-    Duration::try_minutes(
-        dur.parse()
-            .map_err(|_| ScheduleError::InvalidDuration(format!("Expected minutes > 0, got {}", dur.clone())))?,
-    )
-        .ok_or_else(|| ScheduleError::InvalidDuration(format!("Expected minutes > 0, got {}", dur.clone())))
+    Duration::try_minutes(dur.parse().map_err(|_| {
+        ScheduleError::InvalidDuration(format!("Expected minutes as i64, got {}", dur.clone()))
+    })?)
+    .ok_or_else(|| {
+        ScheduleError::InvalidDuration(format!("Expected minutes > 0, got {}", dur.clone()))
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::error::Error;
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime};
+    use std::error::Error;
 
     #[test]
     fn test_parse_date() -> Result<(), Box<dyn Error>> {
-        assert_eq!(parse_date(&"20000101".to_string())?, NaiveDate::parse_from_str("20000101", "%Y%m%d")?);
+        assert_eq!(
+            parse_date(&"20000101".to_string())?,
+            NaiveDate::parse_from_str("20000101", "%Y%m%d")?
+        );
         Ok(())
     }
     #[test]
     fn test_parse_bad_date() {
-        assert_eq!(parse_date(&"20000000".to_string()), Err(ScheduleError::InvalidDate("Expected YYYYMMDD, got 20000000".to_string())))
+        assert_eq!(
+            parse_date(&"20000000".to_string()),
+            Err(ScheduleError::InvalidDate(
+                "Expected YYYYMMDD, got 20000000".to_string()
+            ))
+        )
     }
 
     #[test]
     fn test_parse_time() -> Result<(), Box<dyn Error>> {
-        assert_eq!(parse_time(&"00:00".to_string())?, NaiveTime::parse_from_str("00:00", "%H:%M")?);
-        assert_eq!(parse_time(&"24:00".to_string()), Err(ScheduleError::InvalidTime("Expected HH:MM, got 24:00".to_string())));
+        assert_eq!(
+            parse_time(&"00:00".to_string())?,
+            NaiveTime::parse_from_str("00:00", "%H:%M")?
+        );
+        assert_eq!(
+            parse_time(&"24:00".to_string()),
+            Err(ScheduleError::InvalidTime(
+                "Expected HH:MM, got 24:00".to_string()
+            ))
+        );
         Ok(())
     }
 
     #[test]
     fn test_parse_duration() -> Result<(), Box<dyn Error>> {
-        assert_eq!(parse_duration(&"120".to_string())?, Duration::new(7200, 0).unwrap());
-        assert_eq!(parse_duration(&"one hundred".to_string()), Err(ScheduleError::InvalidDuration("Expected minutes > 0, got one hundred".to_string())));
+        assert_eq!(
+            parse_duration(&"120".to_string())?,
+            Duration::new(7200, 0).unwrap()
+        );
+        assert_eq!(
+            parse_duration(&"one hundred".to_string()),
+            Err(ScheduleError::InvalidDuration(
+                "Expected minutes as i64, got one hundred".to_string()
+            ))
+        );
         Ok(())
     }
 
     #[test]
     fn scheduling_mode_formatting() {
         assert_eq!(format!("{}", SchedulingMode::Common), "common".to_string());
-        assert_eq!(format!("{}", SchedulingMode::Discretionary), "discretionary".to_string());
-        assert_eq!(format!("{}", SchedulingMode::Special), "special".to_string());
+        assert_eq!(
+            format!("{}", SchedulingMode::Discretionary),
+            "discretionary".to_string()
+        );
+        assert_eq!(
+            format!("{}", SchedulingMode::Special),
+            "special".to_string()
+        );
     }
 
     #[test]
@@ -250,23 +301,41 @@ mod tests {
         let mut line = ScheduleLine::new(
             NaiveDateTime::parse_from_str("20000101 00:00", "%Y%m%d %H:%M")?.and_utc(),
             ScdDuration::Finite(Duration::new(60, 0).unwrap()),
-             0,
+            0,
             &"normalscan".to_string(),
             &SchedulingMode::Common,
             vec![],
         )?;
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 1 0 normalscan common".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 1 0 normalscan common".to_string())?
+        );
         line.priority = 20;
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 1 20 normalscan common".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 1 20 normalscan common".to_string())?
+        );
         line.priority = 0;
         line.duration = ScdDuration::Infinite;
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 - 0 normalscan common".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 - 0 normalscan common".to_string())?
+        );
         line.experiment = "test".to_string();
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 - 0 test common".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 - 0 test common".to_string())?
+        );
         line.scheduling_mode = SchedulingMode::Discretionary;
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 - 0 test discretionary".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 - 0 test discretionary".to_string())?
+        );
         line.kwargs.push("--embargo".to_string());
-        assert_eq!(line, ScheduleLine::try_from(&"20000101 00:00 - 0 test discretionary --embargo".to_string())?);
+        assert_eq!(
+            line,
+            ScheduleLine::try_from(&"20000101 00:00 - 0 test discretionary --embargo".to_string())?
+        );
         Ok(())
     }
 
@@ -284,27 +353,65 @@ mod tests {
         line.duration = ScdDuration::Finite(Duration::new(60, 0).unwrap());
         assert_eq!(line.format(), "20000101 00:00 1 0 normalscan common");
         line.kwargs.push("--embargo".to_string());
-        assert_eq!(line.format(), "20000101 00:00 1 0 normalscan common --embargo");
+        assert_eq!(
+            line.format(),
+            "20000101 00:00 1 0 normalscan common --embargo"
+        );
         line.experiment = "full_fov".to_string();
-        assert_eq!(line.format(), "20000101 00:00 1 0 full_fov common --embargo");
+        assert_eq!(
+            line.format(),
+            "20000101 00:00 1 0 full_fov common --embargo"
+        );
         line.scheduling_mode = SchedulingMode::Special;
-        assert_eq!(line.format(), "20000101 00:00 1 0 full_fov special --embargo");
+        assert_eq!(
+            line.format(),
+            "20000101 00:00 1 0 full_fov special --embargo"
+        );
         line.timestamp = NaiveDateTime::parse_from_str("20241231 23:59", "%Y%m%d %H:%M")?.and_utc();
-        assert_eq!(line.format(), "20241231 23:59 1 0 full_fov special --embargo");
-        line.duration = ScdDuration::Finite(Duration::new(1440*60, 0).unwrap());
-        assert_eq!(line.format(), "20241231 23:59 1440 0 full_fov special --embargo");
+        assert_eq!(
+            line.format(),
+            "20241231 23:59 1 0 full_fov special --embargo"
+        );
+        line.duration = ScdDuration::Finite(Duration::new(1440 * 60, 0).unwrap());
+        assert_eq!(
+            line.format(),
+            "20241231 23:59 1440 0 full_fov special --embargo"
+        );
         line.priority = 20;
-        assert_eq!(line.format(), "20241231 23:59 1440 20 full_fov special --embargo");
+        assert_eq!(
+            line.format(),
+            "20241231 23:59 1440 20 full_fov special --embargo"
+        );
         Ok(())
     }
 
     #[test]
     fn make_schedule_line() {
-        assert_eq!(ScheduleLine::try_from(&"20000101 00:00 120 25 normalscan common".to_string()), Err(ScheduleError::InvalidPriority("25 > 20".to_string())));
-        assert_eq!(ScheduleLine::try_from(&"20000101 00:00 120 -1 normalscan common".to_string()), Err(ScheduleError::InvalidPriority("-1".to_string())));
-        assert_eq!(ScheduleLine::try_from(&"20000101 00:00 -10 20 normalscan common".to_string()), Err(ScheduleError::InvalidDuration("Expected minutes > 0, got -10".to_string())));
-        assert_eq!(ScheduleLine::try_from(&"20000101 24:00 120 20 normalscan common".to_string()), Err(ScheduleError::InvalidTime("Expected HH:MM, got 24:00".to_string())));
-        assert_eq!(ScheduleLine::try_from(&"20000101 0000 120 20 normalscan common".to_string()), Err(ScheduleError::InvalidTime("Expected HH:MM, got 0000".to_string())));
-
+        assert_eq!(
+            ScheduleLine::try_from(&"20000101 00:00 120 25 normalscan common".to_string()),
+            Err(ScheduleError::InvalidPriority("25 > 20".to_string()))
+        );
+        assert_eq!(
+            ScheduleLine::try_from(&"20000101 00:00 120 -1 normalscan common".to_string()),
+            Err(ScheduleError::InvalidPriority("-1".to_string()))
+        );
+        assert_eq!(
+            ScheduleLine::try_from(&"20000101 00:00 -10 20 normalscan common".to_string()),
+            Err(ScheduleError::InvalidDuration(
+                "Expected minutes > 0, got -10".to_string()
+            ))
+        );
+        assert_eq!(
+            ScheduleLine::try_from(&"20000101 24:00 120 20 normalscan common".to_string()),
+            Err(ScheduleError::InvalidTime(
+                "Expected HH:MM, got 24:00".to_string()
+            ))
+        );
+        assert_eq!(
+            ScheduleLine::try_from(&"20000101 0000 120 20 normalscan common".to_string()),
+            Err(ScheduleError::InvalidTime(
+                "Expected HH:MM, got 0000".to_string()
+            ))
+        );
     }
 }

@@ -7,6 +7,7 @@ use std::io;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
+/// Different screens that the application can be on.
 pub enum CurrentScreen {
     Main,
     Adding,
@@ -15,6 +16,7 @@ pub enum CurrentScreen {
     Exiting,
 }
 
+/// Different fields that the user may edit.
 #[derive(Debug, Copy, Clone)]
 pub enum CurrentlyEditing {
     Year,
@@ -30,12 +32,12 @@ pub enum CurrentlyEditing {
     Done,
 }
 
-pub struct ExperimentList {
-    pub(crate) items: Vec<String>,
+pub(crate) struct InternalList<T> {
+    pub(crate) items: Vec<T>,
     pub state: ListState,
 }
 
-impl ExperimentList {
+impl<T> InternalList<T> {
     pub fn next(&mut self) {
         if self.items.len() == 0 {
             self.unselect()
@@ -95,122 +97,7 @@ impl ExperimentList {
     }
 }
 
-pub struct ModeList {
-    pub(crate) modes: Vec<SchedulingMode>,
-    pub state: ListState,
-}
-
-impl ModeList {
-    pub fn next(&mut self) {
-        if self.modes.len() > 0 {
-            let i = match self.state.selected() {
-                Some(i) => {
-                    if i >= self.modes.len() - 1 {
-                        0
-                    } else {
-                        i + 1
-                    }
-                }
-                None => 0,
-            };
-            self.state.select(Some(i));
-        }
-    }
-
-    pub fn previous(&mut self) {
-        if self.modes.len() > 0 {
-            let i = match self.state.selected() {
-                Some(i) => {
-                    if i == 0 {
-                        self.modes.len() - 1
-                    } else {
-                        i - 1
-                    }
-                }
-                None => 0,
-            };
-            self.state.select(Some(i));
-        }
-    }
-
-    pub fn first(&mut self) {
-        if self.modes.len() > 0 {
-            self.state.select(Some(0));
-        }
-    }
-
-    pub fn last(&mut self) {
-        if self.modes.len() > 0 {
-            self.state.select(Some(self.modes.len() - 1));
-        }
-    }
-}
-
-pub struct ScheduleList {
-    pub(crate) lines: Vec<ScheduleLine>,
-    pub state: ListState,
-}
-
-impl ScheduleList {
-    pub fn next(&mut self) {
-        if self.lines.len() == 0 {
-            self.unselect()
-        } else {
-            let i = match self.state.selected() {
-                Some(i) => {
-                    if i >= self.lines.len() - 1 {
-                        0
-                    } else {
-                        i + 1
-                    }
-                }
-                None => 0,
-            };
-            self.state.select(Some(i));
-        }
-    }
-
-    pub fn previous(&mut self) {
-        if self.lines.len() == 0 {
-            self.unselect()
-        } else {
-            let i = match self.state.selected() {
-                Some(i) => {
-                    if i == 0 {
-                        self.lines.len() - 1
-                    } else {
-                        i - 1
-                    }
-                }
-                None => 0,
-            };
-            self.state.select(Some(i));
-        }
-    }
-
-    pub fn first(&mut self) {
-        if self.lines.len() == 0 {
-            self.unselect()
-        } else {
-            self.state.select(Some(0));
-        }
-    }
-
-    pub fn last(&mut self) {
-        if self.lines.len() == 0 {
-            self.unselect()
-        } else {
-            self.state.select(Some(self.lines.len() - 1));
-        }
-    }
-
-    pub fn unselect(&mut self) {
-        let offset = self.state.offset();
-        self.state.select(None);
-        *self.state.offset_mut() = offset;
-    }
-}
-
+/// State of the application.
 pub struct App {
     pub year_input: String,
     pub month_input: String,
@@ -219,10 +106,10 @@ pub struct App {
     pub minute_input: String,
     pub duration_input: String,
     pub priority_input: String,
-    pub experiment_list: ExperimentList,
-    pub mode_list: ModeList,
+    pub experiment_list: InternalList<String>,
+    pub mode_list: InternalList<SchedulingMode>,
     pub kwarg_input: String,
-    pub schedule_list: ScheduleList,
+    pub schedule_list: InternalList<ScheduleLine>,
     pub current_screen: CurrentScreen,
     pub currently_editing: Option<CurrentlyEditing>,
     pub last_err: Option<ScheduleError>,
@@ -245,12 +132,12 @@ impl App {
             minute_input: String::new(),
             duration_input: String::new(),
             priority_input: String::new(),
-            experiment_list: ExperimentList {
+            experiment_list: InternalList {
                 items: available_experiments,
                 state: ListState::default(),
             },
-            mode_list: ModeList {
-                modes: vec![
+            mode_list: InternalList {
+                items: vec![
                     SchedulingMode::Common,
                     SchedulingMode::Discretionary,
                     SchedulingMode::Special,
@@ -258,8 +145,8 @@ impl App {
                 state: ListState::default(),
             },
             kwarg_input: String::new(),
-            schedule_list: ScheduleList {
-                lines: vec![],
+            schedule_list: InternalList {
+                items: vec![],
                 state: ListState::default(),
             },
             current_screen: CurrentScreen::Main,
@@ -270,10 +157,11 @@ impl App {
             deletions: vec![],
         };
         app.mode_list.first();
-        app.schedule_list.lines = current_schedule;
+        app.schedule_list.items = current_schedule;
         app
     }
 
+    /// Moves to the previous field in the editor.
     pub fn backward_toggle(&mut self) {
         if let Some(editing) = &self.currently_editing {
             match editing {
@@ -313,6 +201,7 @@ impl App {
             }
         }
     }
+    /// Moves to the next field in the editor.
     pub fn forward_toggle(&mut self) {
         if let Some(editing) = &self.currently_editing {
             match editing {
@@ -353,6 +242,7 @@ impl App {
         }
     }
 
+    /// Attempts to create a schedule line from the internal buffers holding the user input
     fn create_line_from_inputs(&mut self) -> Result<ScheduleLine, ScheduleError> {
         let year: u16 = self
             .year_input
@@ -401,9 +291,17 @@ impl App {
 
         let timestamp: DateTime<Utc> =
             NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
-                .ok_or_else(|| ScheduleError::InvalidDate(format!("Expected valid date as YYYYMMDD, got {year:4}{month:2}{day:2}")))?
+                .ok_or_else(|| {
+                    ScheduleError::InvalidDate(format!(
+                        "Expected valid date as YYYYMMDD, got {year:4}{month:2}{day:2}"
+                    ))
+                })?
                 .and_hms_opt(hour as u32, minute as u32, 0)
-                .ok_or_else(|| ScheduleError::InvalidTime(format!("Expected valid time as HH:MM, got {hour:2}:{minute:2}")))?
+                .ok_or_else(|| {
+                    ScheduleError::InvalidTime(format!(
+                        "Expected valid time as HH:MM, got {hour:2}:{minute:2}"
+                    ))
+                })?
                 .and_utc();
 
         let priority: u8 = self
@@ -418,7 +316,7 @@ impl App {
         };
 
         let scheduling_mode = if let Some(i) = self.mode_list.state.selected() {
-            self.mode_list.modes[i]
+            self.mode_list.items[i]
         } else {
             SchedulingMode::default()
         };
@@ -433,6 +331,8 @@ impl App {
         )
     }
 
+    /// Attempts to create a new schedule line from the inputs. If successful, clears the inputs
+    /// and adds the schedule line to the schedule.
     pub fn save_entry(&mut self) -> Result<(), ScheduleError> {
         let res = self.create_line_from_inputs();
         match res {
@@ -443,9 +343,9 @@ impl App {
             Ok(new_line) => {
                 self.additions.push(new_line.clone());
                 self.last_err = None;
-                self.schedule_list.lines.push(new_line);
-                self.schedule_list.lines.sort();
-                self.schedule_list.lines.reverse();
+                self.schedule_list.items.push(new_line);
+                self.schedule_list.items.sort();
+                self.schedule_list.items.reverse();
                 self.year_input = String::new();
                 self.month_input = String::new();
                 self.day_input = String::new();
@@ -459,13 +359,15 @@ impl App {
         }
     }
 
+    /// Removes a line from the schedule.
     pub fn remove_schedule_line(&mut self) {
         if let Some(x) = self.schedule_list.state.selected() {
-            self.deletions.push(self.schedule_list.lines.remove(x));
+            self.deletions.push(self.schedule_list.items.remove(x));
         }
         self.schedule_list.unselect();
     }
 
+    /// Loads in the schedule from file.
     pub fn load_schedule<P>(filename: P) -> Result<Vec<ScheduleLine>, Box<dyn Error>>
     where
         P: AsRef<Path>,
@@ -480,13 +382,14 @@ impl App {
         Ok(schedule_lines)
     }
 
+    /// Saves the schedule to file, making a backup of the current schedule first.
     pub fn save_schedule(&self) -> Result<(), Box<dyn Error>> {
         let mut backup_file = self.scd_path.clone();
         backup_file.set_extension("scd.bak");
         std::fs::copy(&self.scd_path, backup_file)?;
 
         let mut schedule_file = File::create(&self.scd_path)?;
-        for line in self.schedule_list.lines.iter().rev() {
+        for line in self.schedule_list.items.iter().rev() {
             let mut chars = line.format().into_bytes();
             chars.push(b'\n');
             schedule_file.write_all(&*chars)?;
@@ -495,7 +398,7 @@ impl App {
     }
 }
 
-/// Loads in the names of all experiments (files) in `dir`, ignoring `superdarn_common_fields.py`
+/// Loads in the names of all experiments (files) in `dir`, ignoring non-experiment files.
 fn load_experiments<P>(dir: P) -> Result<Vec<String>, Box<dyn Error>>
 where
     P: AsRef<Path>,
