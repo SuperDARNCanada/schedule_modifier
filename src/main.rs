@@ -26,7 +26,7 @@ struct ModifierArgs {
     #[arg()]
     site_id: String,
 
-    /// Directory containing schedule files (overrides `BOREALIS_SCHEDULES` from environment)
+    /// Directory containing schedule files (overrides `LOCAL_SCHEDULE_DIR` from environment)
     #[arg()]
     schedule_dir: Option<PathBuf>,
 
