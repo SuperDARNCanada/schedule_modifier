@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut schedule_path = if let Some(x) = cli.schedule_dir {
         x
     } else {
-        PathBuf::from(env::var("BOREALIS_SCHEDULES").expect("BOREALIS_SCHEDULES unset"))
+        PathBuf::from(env::var("LOCAL_SCHEDULE_DIR").expect("LOCAL_SCHEDULE_DIR unset"))
     };
     schedule_path.push(cli.site_id);
     schedule_path.set_extension("scd");
