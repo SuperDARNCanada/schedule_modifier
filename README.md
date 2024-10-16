@@ -2,7 +2,7 @@
 This repo provides a TUI application for modifying Borealis schedule files.
 
 ## Installation
-Download the schedule_modifier binary from the latest **Release**, unzip, and place the binary in a convenient location (perhaps with your local copy of the Borealis schedule files?)
+Download the schedule_modifier binary from the [latest release](https://github.com/SuperDARNCanada/schedule_modifier/releases/download/v0.1.0/schedule_modifier-x86_64-unknown-linux-musl.tar.xz), unzip, and place the binary in a convenient location (perhaps with your local copy of the Borealis schedule files?)
 Note that you must also have a copy of the [borealis experiments repository](https://github.com/SuperDARNCanada/borealis_experiments) in order to load in the available experiments.
 
 ## Usage
