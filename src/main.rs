@@ -3,7 +3,6 @@ mod schedule;
 mod ui;
 
 use crate::app::{App, CurrentScreen, CurrentlyEditing};
-use crate::schedule::ScheduleError;
 use crate::ui::ui;
 use clap::Parser;
 use ratatui::backend::{Backend, CrosstermBackend};
@@ -22,10 +21,6 @@ use std::{env, io};
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct ModifierArgs {
-    /// Three-letter site ID of radar to schedule
-    #[arg()]
-    site_id: String,
-
     /// Directory containing schedule files (overrides `LOCAL_SCHEDULE_DIR` from environment)
     #[arg()]
     schedule_dir: Option<PathBuf>,
@@ -37,13 +32,23 @@ struct ModifierArgs {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = ModifierArgs::parse();
-    let mut schedule_path = if let Some(x) = cli.schedule_dir {
+    let schedule_path = if let Some(x) = cli.schedule_dir {
         x
     } else {
         PathBuf::from(env::var("LOCAL_SCHEDULE_DIR").expect("LOCAL_SCHEDULE_DIR unset"))
     };
-    schedule_path.push(cli.site_id);
-    schedule_path.set_extension("scd");
+    let schedule_paths = schedule_path.read_dir()?
+        .filter_map(|res| res.ok())
+        .filter_map(|dir_entry| {
+            if dir_entry.path().extension().map_or(false, |ext| ext == "scd") {
+                Some(dir_entry.path())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    
+    println!("{:?}", schedule_paths);
 
     let experiments_path = if let Some(x) = cli.experiments_dir {
         x
@@ -55,29 +60,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // setup terminal
-    enable_raw_mode()?;
-    let mut stderr = io::stderr(); // This is a special case. Normally using stdout is fine.
-    execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
-
-    let backend = CrosstermBackend::new(stderr);
-    let mut terminal = Terminal::new(backend)?;
+    init_panic_hook();
+    let mut tui = init_tui()?;
 
     // create app and run it
-    let mut app = App::new(schedule_path, experiments_path);
-    let res = run_app(&mut terminal, &mut app);
-
-    if let Ok(true) = res {
-        app.save_schedule().unwrap();
-    }
+    let mut app = App::new(schedule_paths, experiments_path);
+    let res = run_app(&mut tui, &mut app);
 
     // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    restore_tui()?;
 
     if let Err(err) = res {
         println!("{err:?}");
@@ -86,7 +77,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<bool> {
+pub fn init_panic_hook() {
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        // intentionally ignore errors here since we're already in a panic
+        let _ = restore_tui();
+        original_hook(panic_info);
+    }));
+}
+
+pub fn init_tui() -> io::Result<Terminal<impl Backend>> {
+    enable_raw_mode()?;
+    let mut stderr = io::stderr(); // This is a special case. Normally using stdout is fine.
+    execute!(stderr, EnterAlternateScreen, EnableMouseCapture)?;
+    Terminal::new(CrosstermBackend::new(stderr))
+}
+
+pub fn restore_tui() -> io::Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    Ok(())
+}
+
+fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui(f, app))?;
 
@@ -105,58 +122,97 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.current_screen = CurrentScreen::Removing;
                         app.currently_editing = None;
                     }
+                    KeyCode::Tab | KeyCode::Right => {
+                        app.radar_schedules.next();
+                    }
+                    KeyCode::Left => {
+                        app.radar_schedules.previous();
+                    }
                     KeyCode::Char('q') => {
-                        app.current_screen = CurrentScreen::Exiting;
+                        app.start_exit_procedures();
                     }
                     _ => {}
                 },
                 CurrentScreen::Exiting => match key.code {
-                    KeyCode::Char('y') => {
-                        return Ok(true);
+                    KeyCode::Char('Y') | KeyCode::Char('y') => {
+                        for i in 0..app.radar_schedules.items.len() {
+                            app.radar_schedules.state.select(Some(i));
+                            app.save_schedule().unwrap();
+                        }
+                        return Ok(())
                     }
-                    KeyCode::Char('n') => {
-                        return Ok(false);
+                    KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(()),
+                    KeyCode::Tab | KeyCode::Right => {
+                        app.radar_schedules.next();
                     }
-                    KeyCode::Char('b') => {
+                    KeyCode::Left => {
+                        app.radar_schedules.previous();
+                    }
+                    KeyCode::Char('B') | KeyCode::Char('b') => {
                         app.current_screen = CurrentScreen::Main;
                     }
                     _ => {}
                 },
                 CurrentScreen::Removing => match key.code {
                     KeyCode::Char('q') => {
-                        app.current_screen = CurrentScreen::Exiting;
+                        app.start_exit_procedures();
                     }
                     KeyCode::Enter => {
                         app.current_screen = CurrentScreen::Main;
                         app.remove_schedule_line();
                     }
-                    KeyCode::Down | KeyCode::Tab => {
-                        app.schedule_list.next();
+                    KeyCode::Down => {
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.next();
+                        }
                     }
+                    KeyCode::Tab | KeyCode::Right => {
+                        app.radar_schedules.next();
+                    }
+                    KeyCode::Left => app.radar_schedules.previous(),
                     KeyCode::Up => {
-                        app.schedule_list.previous();
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.previous();
+                        }
                     }
                     KeyCode::Char('g') => {
-                        app.schedule_list.first();
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.first();
+                        }
                     }
                     KeyCode::Char('G') => {
-                        app.schedule_list.last();
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.last();
+                        }
                     }
                     KeyCode::Esc => {
                         app.current_screen = CurrentScreen::Main;
-                        app.schedule_list.unselect();
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.unselect();
+                        }
                     }
                     KeyCode::PageDown => {
-                        app.schedule_list.state.scroll_down_by(30);
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.state.scroll_down_by(30);
+                        }
                     }
                     KeyCode::PageUp => {
-                        app.schedule_list.state.scroll_up_by(30);
+                        if let Some(x) = app.radar_schedules.state.selected() {
+                            let scd = &mut app.radar_schedules.items[x];
+                            scd.lines.state.scroll_up_by(30);
+                        }
                     }
                     _ => {}
                 },
                 CurrentScreen::Selecting => match key.code {
                     KeyCode::Char('q') => {
-                        app.current_screen = CurrentScreen::Exiting;
+                        app.start_exit_procedures();
                     }
                     KeyCode::Enter | KeyCode::Left => {
                         app.current_screen = CurrentScreen::Adding;
@@ -191,39 +247,22 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     KeyCode::Enter => {
                         if let Some(editing) = &app.currently_editing {
                             match editing {
-                                CurrentlyEditing::Done => match app.save_entry() {
-                                    Ok(_) => {
-                                        app.currently_editing = None;
-                                        app.current_screen = CurrentScreen::Main;
+                                CurrentlyEditing::Add => {
+                                    app.parse_scd_input().inspect(|x| app.save_entry(&x));
+                                },
+                                CurrentlyEditing::AddAll => {
+                                    if let Some(new_line) = app.parse_scd_input() {
+                                        let idx = app.radar_schedules.state.selected();
+                                        for i in 0..app.radar_schedules.items.len() {
+                                            app.radar_schedules.state.select(Some(i));
+                                            app.save_entry(&new_line);
+                                        }
+                                        app.radar_schedules.state.select(idx);
                                     }
-                                    Err(e) => match e {
-                                        ScheduleError::InvalidDate(s) if s.contains("day") => {
-                                            app.currently_editing = Some(CurrentlyEditing::Day)
-                                        }
-                                        ScheduleError::InvalidDate(s) if s.contains("month") => {
-                                            app.currently_editing = Some(CurrentlyEditing::Month)
-                                        }
-                                        ScheduleError::InvalidDate(_) => {
-                                            app.currently_editing = Some(CurrentlyEditing::Year)
-                                        }
-                                        ScheduleError::InvalidTime(s) if s.contains("minute") => {
-                                            app.currently_editing = Some(CurrentlyEditing::Minute)
-                                        }
-                                        ScheduleError::InvalidTime(_) => {
-                                            app.currently_editing = Some(CurrentlyEditing::Hour)
-                                        }
-                                        ScheduleError::InvalidDuration(_) => {
-                                            app.currently_editing = Some(CurrentlyEditing::Duration)
-                                        }
-                                        ScheduleError::InvalidPriority(_) => {
-                                            app.currently_editing = Some(CurrentlyEditing::Priority)
-                                        }
-                                        ScheduleError::InvalidMode(_) => {
-                                            app.currently_editing =
-                                                Some(CurrentlyEditing::SchedulingMode)
-                                        }
-                                        _ => {}
-                                    },
+                                }
+                                CurrentlyEditing::Exit => {
+                                    app.current_screen = CurrentScreen::Main;
+                                    app.currently_editing = None;
                                 },
                                 _ => {
                                     app.forward_toggle();
@@ -233,7 +272,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                     }
                     KeyCode::End => {
                         if let Some(_) = &app.currently_editing {
-                            app.currently_editing = Some(CurrentlyEditing::Done);
+                            app.currently_editing = Some(CurrentlyEditing::Add);
                         }
                     }
                     KeyCode::Backspace => {
@@ -271,11 +310,22 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.current_screen = CurrentScreen::Main;
                         app.currently_editing = None;
                     }
-                    KeyCode::Tab | KeyCode::Down => {
+                    KeyCode::Tab => {
                         app.forward_toggle();
                     }
+                    KeyCode::Down => {
+                        match app.currently_editing {
+                            Some(CurrentlyEditing::Add) | Some(CurrentlyEditing::AddAll) | Some(CurrentlyEditing::Exit) => {},
+                            _ => app.forward_toggle(),
+                        }
+                    }
                     KeyCode::Up => {
-                        app.backward_toggle();
+                        match app.currently_editing {
+                            Some(CurrentlyEditing::Add) | Some(CurrentlyEditing::AddAll) | Some(CurrentlyEditing::Exit) => {
+                                app.currently_editing = Some(CurrentlyEditing::Kwargs);
+                            },
+                            _ => app.backward_toggle(),
+                        }
                     }
                     KeyCode::Char(value) => {
                         if let Some(editing) = &app.currently_editing {
@@ -315,13 +365,25 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                                     app.current_screen = CurrentScreen::Selecting;
                                     app.last_err = None;
                                 }
+                                CurrentlyEditing::Add | CurrentlyEditing::AddAll => {app.forward_toggle()}
                                 _ => {}
                             }
                         }
                     }
                     KeyCode::Left => {
-                        if let CurrentScreen::Selecting = &app.current_screen {
-                            app.current_screen = CurrentScreen::Adding;
+                        match &app.current_screen {
+                            CurrentScreen::Selecting => {
+                                app.current_screen = CurrentScreen::Adding;
+                            },
+                            CurrentScreen::Adding => {
+                                if let Some(editing) = &app.currently_editing {
+                                    match editing {
+                                        CurrentlyEditing::AddAll | CurrentlyEditing::Exit => {app.backward_toggle()}
+                                        _ => {}
+                                    }
+                                }
+                            },
+                            _ => {}
                         }
                     }
                     _ => {}

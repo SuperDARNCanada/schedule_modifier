@@ -1,9 +1,10 @@
-use crate::ui::{ALT_ROW_COLOR, BG_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
+use crate::ui::{ALT_ROW_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::widgets::ListItem;
 use std::fmt::{Display, Formatter, Write};
+use ratatui::style::palette::tailwind;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -45,7 +46,7 @@ impl Display for SchedulingMode {
 }
 impl SchedulingMode {
     pub fn to_list_item(&self) -> ListItem {
-        ListItem::new(Line::styled(format!("{self}"), TEXT_COLOR)).bg(BG_COLOR)
+        ListItem::new(Line::styled(format!("{self}"), tailwind::SLATE.c200)).bg(tailwind::INDIGO.c700)
     }
 }
 

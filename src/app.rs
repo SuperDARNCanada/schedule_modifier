@@ -29,12 +29,23 @@ pub enum CurrentlyEditing {
     Experiment,
     SchedulingMode,
     Kwargs,
-    Done,
+    Add,
+    AddAll,
+    Exit,
 }
 
+#[derive(Debug, Clone, Default)]
 pub(crate) struct InternalList<T> {
     pub(crate) items: Vec<T>,
     pub state: ListState,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Schedule {
+    pub(crate) lines: InternalList<ScheduleLine>,
+    pub(crate) additions: Vec<ScheduleLine>,
+    pub(crate) deletions: Vec<ScheduleLine>,
+    pub(crate) path: PathBuf,
 }
 
 impl<T> InternalList<T> {
@@ -109,19 +120,31 @@ pub struct App {
     pub experiment_list: InternalList<String>,
     pub mode_list: InternalList<SchedulingMode>,
     pub kwarg_input: String,
-    pub schedule_list: InternalList<ScheduleLine>,
+    pub radar_schedules: InternalList<Schedule>,
     pub current_screen: CurrentScreen,
     pub currently_editing: Option<CurrentlyEditing>,
     pub last_err: Option<ScheduleError>,
-    pub scd_path: PathBuf,
-    pub additions: Vec<ScheduleLine>,
-    pub deletions: Vec<ScheduleLine>,
 }
 
 impl App {
-    pub fn new(scd_path: PathBuf, exp_path: PathBuf) -> App {
-        let current_schedule =
-            Self::load_schedule(&scd_path).expect("Unable to open schedule file");
+    pub fn new(scd_paths: Vec<PathBuf>, exp_path: PathBuf) -> App {
+        let mut current_schedule = InternalList::default();
+        if scd_paths.len() == 0 {
+            panic!("Must have a schedule to start the app");
+        }
+        for path in scd_paths.iter() {
+            let scd = InternalList {
+                items: Self::load_schedule(path).expect("Unable to open schedule file"),
+                state: ListState::default(),
+            };
+            let schedule = Schedule {
+                lines: scd,
+                path: path.clone(),
+                ..Default::default()
+            };
+            current_schedule.items.push(schedule);
+        }
+        current_schedule.first();
         let available_experiments =
             load_experiments(&exp_path).expect("Unable to find Borealis experiments");
         let mut app = App {
@@ -145,19 +168,12 @@ impl App {
                 state: ListState::default(),
             },
             kwarg_input: String::new(),
-            schedule_list: InternalList {
-                items: vec![],
-                state: ListState::default(),
-            },
+            radar_schedules: current_schedule,
             current_screen: CurrentScreen::Main,
             currently_editing: None,
             last_err: None,
-            scd_path,
-            additions: vec![],
-            deletions: vec![],
         };
         app.mode_list.first();
-        app.schedule_list.items = current_schedule;
         app
     }
 
@@ -166,7 +182,7 @@ impl App {
         if let Some(editing) = &self.currently_editing {
             match editing {
                 CurrentlyEditing::Year => {
-                    self.currently_editing = Some(CurrentlyEditing::Done);
+                    self.currently_editing = Some(CurrentlyEditing::Exit);
                 }
                 CurrentlyEditing::Month => {
                     self.currently_editing = Some(CurrentlyEditing::Year);
@@ -195,8 +211,14 @@ impl App {
                 CurrentlyEditing::Kwargs => {
                     self.currently_editing = Some(CurrentlyEditing::SchedulingMode);
                 }
-                CurrentlyEditing::Done => {
+                CurrentlyEditing::Add => {
                     self.currently_editing = Some(CurrentlyEditing::Kwargs);
+                }
+                CurrentlyEditing::AddAll => {
+                    self.currently_editing = Some(CurrentlyEditing::Add);
+                }
+                CurrentlyEditing::Exit => {
+                    self.currently_editing = Some(CurrentlyEditing::AddAll);
                 }
             }
         }
@@ -233,9 +255,15 @@ impl App {
                     self.currently_editing = Some(CurrentlyEditing::Kwargs);
                 }
                 CurrentlyEditing::Kwargs => {
-                    self.currently_editing = Some(CurrentlyEditing::Done);
+                    self.currently_editing = Some(CurrentlyEditing::Add);
                 }
-                CurrentlyEditing::Done => {
+                CurrentlyEditing::Add => {
+                    self.currently_editing = Some(CurrentlyEditing::AddAll);
+                }
+                CurrentlyEditing::AddAll => {
+                    self.currently_editing = Some(CurrentlyEditing::Exit);
+                }
+                CurrentlyEditing::Exit => {
                     self.currently_editing = Some(CurrentlyEditing::Year);
                 }
             }
@@ -333,19 +361,29 @@ impl App {
 
     /// Attempts to create a new schedule line from the inputs. If successful, clears the inputs
     /// and adds the schedule line to the schedule.
-    pub fn save_entry(&mut self) -> Result<(), ScheduleError> {
+    pub fn save_entry(&mut self, new_line: &ScheduleLine) {
+        let radar_schedule = if let Some(i) = self.radar_schedules.state.selected() {
+            &mut self.radar_schedules.items[i]
+        } else {
+            panic!("Must have a schedule selected to save an entry");
+        };
+        radar_schedule.additions.push(new_line.clone());
+        radar_schedule.lines.items.push(new_line.clone());
+        radar_schedule.lines.items.sort();
+        radar_schedule.lines.items.reverse();
+    }
+
+    /// Attempts to create a new schedule line from the inputs. If successful, clears the inputs
+    /// and returns the schedule line.
+    fn parse_inputs(&mut self) -> Result<ScheduleLine, ScheduleError> {
         let res = self.create_line_from_inputs();
         match res {
             Err(e) => {
                 self.last_err = Some(e.clone());
-                return Err(e);
+                Err(e)
             }
             Ok(new_line) => {
-                self.additions.push(new_line.clone());
                 self.last_err = None;
-                self.schedule_list.items.push(new_line);
-                self.schedule_list.items.sort();
-                self.schedule_list.items.reverse();
                 self.year_input = String::new();
                 self.month_input = String::new();
                 self.day_input = String::new();
@@ -354,17 +392,20 @@ impl App {
                 self.duration_input = String::new();
                 self.priority_input = String::new();
                 self.kwarg_input = String::new();
-                return Ok(());
+                Ok(new_line)
             }
         }
     }
 
     /// Removes a line from the schedule.
     pub fn remove_schedule_line(&mut self) {
-        if let Some(x) = self.schedule_list.state.selected() {
-            self.deletions.push(self.schedule_list.items.remove(x));
+        if let Some(x) = self.radar_schedules.state.selected() {
+            let radar_schedule = &mut self.radar_schedules.items[x];
+            if let Some(y) = radar_schedule.lines.state.selected() {
+                radar_schedule.deletions.push(radar_schedule.lines.items.remove(y));
+                radar_schedule.lines.unselect();
+            }
         }
-        self.schedule_list.unselect();
     }
 
     /// Loads in the schedule from file.
@@ -384,17 +425,67 @@ impl App {
 
     /// Saves the schedule to file, making a backup of the current schedule first.
     pub fn save_schedule(&self) -> Result<(), Box<dyn Error>> {
-        let mut backup_file = self.scd_path.clone();
-        backup_file.set_extension("scd.bak");
-        std::fs::copy(&self.scd_path, backup_file)?;
+        if let Some(x) = self.radar_schedules.state.selected() {
+            let radar_schedule = &self.radar_schedules.items[x];
 
-        let mut schedule_file = File::create(&self.scd_path)?;
-        for line in self.schedule_list.items.iter().rev() {
-            let mut chars = line.format().into_bytes();
-            chars.push(b'\n');
-            schedule_file.write_all(&*chars)?;
+            let mut backup_file = radar_schedule.path.clone();
+            backup_file.set_extension("scd.bak");
+            std::fs::copy(&radar_schedule.path, backup_file)?;
+
+            let mut schedule_file = File::create(&radar_schedule.path)?;
+            for line in radar_schedule.lines.items.iter().rev() {
+                let mut chars = line.format().into_bytes();
+                chars.push(b'\n');
+                schedule_file.write_all(&*chars)?;
+            }
         }
         Ok(())
+    }
+    
+    pub fn start_exit_procedures(&mut self) {
+        self.radar_schedules.first();
+        self.current_screen = CurrentScreen::Exiting;
+    }
+    
+    pub fn parse_scd_input(&mut self) -> Option<ScheduleLine> {
+        match self.parse_inputs() {
+            Ok(new_line) => {
+                self.currently_editing = None;
+                self.current_screen = CurrentScreen::Main;
+                Some(new_line)
+            }
+            Err(e) => {
+                match e {
+                    ScheduleError::InvalidDate(s) if s.contains("day") => {
+                        self.currently_editing = Some(CurrentlyEditing::Day)
+                    }
+                    ScheduleError::InvalidDate(s) if s.contains("month") => {
+                        self.currently_editing = Some(CurrentlyEditing::Month)
+                    }
+                    ScheduleError::InvalidDate(_) => {
+                        self.currently_editing = Some(CurrentlyEditing::Year)
+                    }
+                    ScheduleError::InvalidTime(s) if s.contains("minute") => {
+                        self.currently_editing = Some(CurrentlyEditing::Minute)
+                    }
+                    ScheduleError::InvalidTime(_) => {
+                        self.currently_editing = Some(CurrentlyEditing::Hour)
+                    }
+                    ScheduleError::InvalidDuration(_) => {
+                        self.currently_editing = Some(CurrentlyEditing::Duration)
+                    }
+                    ScheduleError::InvalidPriority(_) => {
+                        self.currently_editing = Some(CurrentlyEditing::Priority)
+                    }
+                    ScheduleError::InvalidMode(_) => {
+                        self.currently_editing =
+                            Some(CurrentlyEditing::SchedulingMode)
+                    }
+                    _ => {}
+                };
+                None
+            },
+        }
     }
 }
 
