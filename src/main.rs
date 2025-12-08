@@ -48,8 +48,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect::<Vec<_>>();
     
-    println!("{:?}", schedule_paths);
-
     let experiments_path = if let Some(x) = cli.experiments_dir {
         x
     } else {

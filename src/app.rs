@@ -428,6 +428,10 @@ impl App {
         if let Some(x) = self.radar_schedules.state.selected() {
             let radar_schedule = &self.radar_schedules.items[x];
 
+            if radar_schedule.deletions.is_empty() && radar_schedule.additions.is_empty() {
+                return Ok(());
+            }
+
             let mut backup_file = radar_schedule.path.clone();
             backup_file.set_extension("scd.bak");
             std::fs::copy(&radar_schedule.path, backup_file)?;
